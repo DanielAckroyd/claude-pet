@@ -1,0 +1,7 @@
+# the pet itself, not the code
+state.json
+state.json.*
+events.jsonl
+events.jsonl.*
+.lock
+__pycache__/

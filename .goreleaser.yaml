@@ -1,0 +1,61 @@
+version: 2
+
+project_name: claude-pet
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - env:
+      - CGO_ENABLED=0
+    goos: [darwin, linux, windows]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+archives:
+  - formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    files: [README.md, LICENSE]
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  use: github
+  filters:
+    exclude: ["^docs:", "^test:"]
+
+homebrew_casks:
+  - repository:
+      owner: DanielAckroyd
+      name: homebrew-tap
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
+    homepage: https://github.com/DanielAckroyd/claude-pet
+    description: A little pet in your Claude Code statusline that thrives when you use Claude well
+    caveats: |
+      Wire it into Claude Code:
+        claude-pet setup
+    hooks:
+      post:
+        # the binary isn't notarised, so clear the quarantine flag or Gatekeeper blocks it
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/claude-pet"]
+          end
+
+scoops:
+  - repository:
+      owner: DanielAckroyd
+      name: homebrew-tap
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
+    directory: bucket
+    homepage: https://github.com/DanielAckroyd/claude-pet
+    description: A little pet in your Claude Code statusline that thrives when you use Claude well
+    license: MIT
+    post_install:
+      - "Write-Host 'Wire it into Claude Code with: claude-pet setup'"

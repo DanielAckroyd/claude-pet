@@ -6,4 +6,7 @@ events.jsonl.*
 .lock
 config.json
 install.json
-__pycache__/
+
+dist/
+/claude-pet
+/claude-pet.exe

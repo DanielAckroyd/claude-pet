@@ -8,67 +8,55 @@ One pet is shared across every Claude session on the machine, so every pane show
 
 ## Install
 
-Needs Claude Code, git and Python 3.9+ (the macOS system `python3` is fine) on macOS, Linux or WSL. Any terminal works.
+One binary, no runtime to install. The one-line scripts download the latest release, check its checksum and run setup for you:
 
 ```sh
-git clone https://github.com/DanielAckroyd/claude-pet ~/.claude/pet
-python3 ~/.claude/pet/install.py
+curl -fsSL https://raw.githubusercontent.com/DanielAckroyd/claude-pet/main/install.sh | sh        # macOS / Linux
+```
+```powershell
+irm https://raw.githubusercontent.com/DanielAckroyd/claude-pet/main/install.ps1 | iex             # Windows
+```
+
+With Go installed, `go install github.com/DanielAckroyd/claude-pet@latest` works too, or grab a binary from the [releases page](https://github.com/DanielAckroyd/claude-pet/releases).
+
+If you installed without the script, wire it into Claude Code:
+
+```sh
+claude-pet setup
 ```
 
 It asks **express** or **custom**:
 
-- **Express:** sensible defaults, no questions. If you already have a statusline, the pet goes in front of it and your script stays untouched. Otherwise you get the bundled one (pet, model, context %). It also adds two hooks and a `pet` command in `~/.local/bin`.
-- **Custom:** a quick guide, then a few questions: work hours, where the pet goes, hooks, where `pet` lives, and a name.
+- **Express:** sensible defaults, no questions. If you already have a statusline, the pet goes in front of it and your script stays untouched. Otherwise you get the bundled one (pet, model, context %). It also adds two hooks for scoring.
+- **Custom:** a quick guide, then a few questions: work hours, where the pet goes, hooks, and a name.
 
-It backs up `~/.claude/settings.json` before touching it, only adds its own entries, and is safe to re-run. Start a new Claude Code session and your pet hatches.
+It backs up `~/.claude/settings.json` before touching it, keeps everything else in there exactly as it was, and is safe to re-run. Start a new Claude Code session and your pet hatches. Any terminal works.
 
 **With Claude Code:** paste this in.
 
-> Clone https://github.com/DanielAckroyd/claude-pet to `~/.claude/pet` and run `python3 ~/.claude/pet/install.py --express`. Show me the output.
+> Install claude-pet by running `curl -fsSL https://raw.githubusercontent.com/DanielAckroyd/claude-pet/main/install.sh | sh` (on Windows, the install.ps1 line from https://github.com/DanielAckroyd/claude-pet), then run `claude-pet setup --express` and show me the output.
 
-For a custom install through Claude, ask it to pass the options as flags: `--hours 8-16`, `--statusline wrap|replace|skip`, `--no-hooks`, `--bin DIR` or `--no-bin`, `--name NAME`. Add `--dry-run` to preview first.
+For a custom setup through Claude, ask it to pass the options as flags: `--hours 8-16`, `--statusline wrap|replace|skip`, `--no-hooks`, `--name NAME`. Add `--dry-run` to preview first.
 
-**Uninstall:** `python3 ~/.claude/pet/install.py --uninstall` puts your statusline and hooks back the way they were. Your pet stays in `~/.claude/pet` until you delete the folder.
+**Uninstall:** `claude-pet setup --uninstall` puts your statusline and hooks back the way they were. Then delete the `claude-pet` binary (the install script puts it in `~/.local/bin`, or `%LOCALAPPDATA%\Programs\claude-pet` on Windows). Your pet stays in `~/.claude/pet` until you delete the folder.
 
 <details>
-<summary>Manual install, or adding the pet inside your own statusline script</summary>
+<summary>Adding the pet inside your own statusline script</summary>
 
-The installer's wrap mode runs your statusline as a child process, which costs a Python start (about 25ms) per render. If you'd rather build the pet into your own script, do that and point the installer at `--statusline skip`.
-
-*A shell script:* read stdin once, then pipe it through `--segment`, which prints only the pet.
+The express setup wraps your statusline, which costs about 10ms per render. If you'd rather build the pet into your own script, do that and run setup with `--statusline skip`. `--segment` prints only the pet:
 
 ```sh
 input=$(cat)
-pet=$(printf '%s' "$input" | python3 ~/.claude/pet/pet_statusline.py --segment)
+pet=$(printf '%s' "$input" | claude-pet statusline --segment)
 printf '%s │ %s' "$pet" "$(echo "$input" | jq -r .model.display_name)"
 ```
 
-*A Python script:* import it directly.
-
 ```python
-import os, sys
-try:
-    sys.path.insert(0, os.path.expanduser("~/.claude/pet"))
-    import petlib
-    pet = petlib.segment(data, {  # data = the JSON Claude Code sends on stdin
-        "good": "\033[38;5;42m", "meh": "\033[38;5;179m", "bad": "\033[38;5;203m", "reset": "\033[0m",
-    })
-    if pet:
-        segments.insert(0, pet)
-except Exception:
-    pass
+pet = subprocess.run(["claude-pet", "statusline", "--segment"], input=json.dumps(data),
+                     capture_output=True, text=True, timeout=1).stdout
 ```
 
-Set `"refreshInterval": 5000` on your `statusLine` so it animates between messages. None of these ever raise; if anything goes wrong the pet just doesn't show.
-
-*Hooks*, merged into `hooks` in `~/.claude/settings.json`:
-
-```json
-"PreCompact": [{ "hooks": [{ "type": "command", "command": "python3 ~/.claude/pet/hook.py", "async": true, "timeout": 5 }] }],
-"SessionEnd": [{ "hooks": [{ "type": "command", "command": "python3 ~/.claude/pet/hook.py", "async": true, "timeout": 5 }] }]
-```
-
-*The `pet` command:* `ln -s ~/.claude/pet/pet_cli.py ~/.local/bin/pet`, or anywhere on your PATH.
+Set `"refreshInterval": 5000` on your `statusLine` so it animates between messages. The statusline command never fails; if anything goes wrong the pet just doesn't show.
 
 </details>
 
@@ -104,24 +92,25 @@ The hatchling picks a species at L5 based on how you've worked over roughly the 
 
 Each pet also rolls its own look when it hatches: eye style, a held charm (✿ ♡ ☆ ♣ ❀) and a 1 in 20 chance of being shiny, which shows as gold when it's happy.
 
-**Devolving:** if fit and rested average under 30 for 90 minutes of active use, the pet wilts back a tier and loses a couple of levels. Its next evolution picks a branch fresh, so it might go a different way. Being away never devolves it. Only line or context changes count as activity, so a pane left open in a terminal multiplexer doesn't count as you being there. You can also do it on purpose with `pet devolve`.
+**Devolving:** if fit and rested average under 30 for 90 minutes of active use, the pet wilts back a tier and loses a couple of levels. Its next evolution picks a branch fresh, so it might go a different way. Being away never devolves it. Only line or context changes count as activity, so a pane left open in a terminal multiplexer doesn't count as you being there. You can also do it on purpose with `claude-pet devolve`.
 
 ## Commands
 
 ```
-pet              stat sheet: face, level, stats, path, streak, today, recent events
-pet log [n]      recent events
-pet name NEW     rename
-pet tree         the evolution paths
-pet devolve      drop back a tier on purpose (asks first; -y skips the prompt)
-pet glyphs       every form × mood × frame, to check your terminal renders them evenly
+claude-pet              stat sheet: face, level, stats, path, streak, today, recent events
+claude-pet log [n]      recent events
+claude-pet name NEW     rename
+claude-pet tree         the evolution paths
+claude-pet devolve      drop back a tier on purpose (asks first; -y skips the prompt)
+claude-pet glyphs       every form × mood × frame, to check your terminal renders them evenly
+claude-pet setup        wire it into Claude Code (or --custom, --uninstall)
 ```
 
-There's no reset command. Delete `~/.claude/pet/state.json` if you really mean it.
+It's a long name to type, so `alias pet=claude-pet` is worth adding. There's no reset command. Delete `~/.claude/pet/state.json` if you really mean it.
 
 ## Config
 
-Put overrides in `~/.claude/pet/config.json`. It's gitignored, so updates won't clobber it. Any numeric key from the `TUNING` dict at the top of `petlib.py` works, e.g. different work hours:
+Put overrides in `~/.claude/pet/config.json`, which upgrades never touch. Any key from the tuning list in [`internal/pet/engine.go`](internal/pet/engine.go) works (`work_start`, `fed_per_commit`, `wilt_minutes` and so on), e.g. different work hours:
 
 ```json
 { "work_start": 8, "work_end": 16 }
@@ -131,11 +120,11 @@ Set `PET_DISABLE=1` to switch the pet off without uninstalling.
 
 ## Updating
 
-`git -C ~/.claude/pet pull`. Your pet, log and config are gitignored, so they're kept.
+Re-run the install script (or `go install github.com/DanielAckroyd/claude-pet@latest`). Your pet lives in `~/.claude/pet`, separate from the binary, so it carries over.
 
 ## Notes
 
-- **Multiple panes:** they share state safely. Updates take an `flock`, and a pane that can't get the lock renders read-only. Per-session baselines mean lines are never counted twice.
+- **Multiple panes:** they share state safely. Updates take a file lock, and a pane that can't get the lock renders read-only. Per-session baselines mean lines are never counted twice.
 - **Commits:** read with `git log --branches`, at most once a minute per repo, matched exactly on `user.email`. Amends and rebases don't count twice.
-- **Windows:** native Windows isn't supported (it uses `fcntl`), but WSL works.
-- **Tests:** `python3 -m unittest test_petlib.py test_install.py`. They use a temp `PET_HOME`, so they never touch your real pet.
+- **Platforms:** macOS, Linux and Windows, on amd64 and arm64. File locking uses `flock` on macOS and Linux, and `LockFileEx` on Windows.
+- **Tests:** `go test ./...`. They use a temp `PET_HOME` and `HOME`, so they never touch your real pet or settings.

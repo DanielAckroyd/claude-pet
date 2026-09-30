@@ -53,20 +53,28 @@ func tilde(p string) string {
 	return p
 }
 
-// ResolveBin prefers the claude-pet on PATH (a package manager's stable path survives upgrades),
-// falling back to this executable's own path.
+// ResolveBin is the path setup writes into settings.json: the running binary, or the PATH entry
+// that points at it (a package manager's stable path survives upgrades). Never a different install.
 func ResolveBin() string {
+	self, err := os.Executable()
+	if err != nil {
+		return "claude-pet"
+	}
+
+	selfReal, err := filepath.EvalSymlinks(self)
+	if err != nil {
+		return self
+	}
+
 	if p, err := exec.LookPath("claude-pet"); err == nil {
 		if abs, err := filepath.Abs(p); err == nil {
-			return abs
+			if target, err := filepath.EvalSymlinks(abs); err == nil && target == selfReal {
+				return abs
+			}
 		}
 	}
 
-	if p, err := os.Executable(); err == nil {
-		return p
-	}
-
-	return "claude-pet"
+	return self
 }
 
 // shellPath makes a path safe for the shell Claude Code runs commands in. On Windows that's

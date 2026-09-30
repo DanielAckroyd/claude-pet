@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -423,5 +424,37 @@ func TestWindowsPathsUseForwardSlashes(t *testing.T) {
 
 	if shellPath("/opt/homebrew/bin/claude-pet", "darwin") != "/opt/homebrew/bin/claude-pet" {
 		t.Fatal("unix path changed")
+	}
+}
+
+func TestResolveBinIsTheRunningBinary(t *testing.T) {
+	self, _ := os.Executable()
+	selfReal, _ := filepath.EvalSymlinks(self)
+	name := "claude-pet"
+
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+
+	other := t.TempDir() // a different claude-pet on PATH must not win
+	_ = os.WriteFile(filepath.Join(other, name), []byte("#!/bin/sh\n"), 0o700)
+	t.Setenv("PATH", other)
+
+	if got, _ := filepath.EvalSymlinks(ResolveBin()); got != selfReal {
+		t.Fatalf("picked %s, want the running binary %s", got, selfReal)
+	}
+
+	if runtime.GOOS == "windows" {
+		return // symlinks need privileges there
+	}
+
+	stable := t.TempDir() // a symlink to the running binary (brew-style) is preferred
+	link := filepath.Join(stable, name)
+	_ = os.Symlink(selfReal, link)
+
+	t.Setenv("PATH", stable)
+
+	if got := ResolveBin(); got != link {
+		t.Fatalf("got %s, want the stable path %s", got, link)
 	}
 }

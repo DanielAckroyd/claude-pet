@@ -96,7 +96,8 @@ def path_line(s, now, form):
     elif form in P.FINALS:
         nxt = f"→ {P.FINALS[form][lean]} at L{P.T['final_level']}"
     else:
-        nxt = "final form"
+        print(f"\n  path    {traits}  {DIM}final form{RESET}")
+        return
     print(f"\n  path    {traits}  {DIM}leaning {lean} {nxt}{RESET}")
 
 
@@ -184,12 +185,13 @@ def glyphs():
     for charm in filter(None, dict.fromkeys(P.CHARMS)):
         rows.append((f"charm {charm}", P.face("tiger", "content") + charm + P.CROWN))
     wmax = max(P.width(f) for _, f in rows)
-    print("Right edge should be a straight line. Check here and inside herdr.\n")
+    print("Right edge should be a straight line. If you use tmux/zellij/etc., check inside that too.\n")
     for label, f in rows:
         print(f"  {label:<28}│{f}{' ' * (wmax - P.width(f))}│")
 
 
 def main(argv):
+    P.load_config()
     cmd = argv[0] if argv else ""
     if cmd == "":
         sheet()

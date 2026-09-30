@@ -6,6 +6,7 @@ try:
     sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
     import petlib as P
     if os.environ.get("PET_DISABLE") != "1":
+        P.load_config()
         data = json.load(sys.stdin)
         name = data.get("hook_event_name")
         if name in ("PreCompact", "SessionEnd"):

@@ -279,8 +279,8 @@ class Moods(PetCase):
         P.tick(s, now + 200, ev, data=payload("A", ctx=92), poll=False)
         self.assertLess(s["stats"]["fit"], 70)
 
-    def test_idle_herdr_session_is_not_you(self):
-        # herdr keeps a parked 90% session rendering all day: no fit drain, no steady credit
+    def test_idle_parked_session_is_not_you(self):
+        # a multiplexer keeps a parked 90% session rendering all day: no fit drain, no steady credit
         now = ts(*MON, 9)
         s, ev = self.fresh(now), []
         for i in range(0, 8 * 3600, 60):
@@ -571,6 +571,37 @@ class Storage(PetCase):
             holder.kill()
             holder.wait()
             holder.stdout.close()
+
+    def test_config_overrides_numbers_only(self):
+        with open(os.path.join(self.dir, "config.json"), "w") as f:
+            json.dump({"work_start": 7, "work_end": 15, "xp_mult": "nope", "bogus": 1, "floor": True}, f)
+        saved = dict(P.T)
+        try:
+            P.load_config()
+            self.assertEqual((P.T["work_start"], P.T["work_end"]), (7, 15))
+            self.assertEqual(P.T["xp_mult"], saved["xp_mult"])
+            self.assertEqual(P.T["floor"], saved["floor"])
+            self.assertNotIn("bogus", P.T)
+            self.assertTrue(P.is_work_time(ts(*MON, 7, 30)))
+            self.assertFalse(P.is_work_time(ts(*MON, 15, 30)))
+        finally:
+            P.T.clear()
+            P.T.update(saved)
+
+    def test_bad_config_ignored(self):
+        with open(os.path.join(self.dir, "config.json"), "w") as f:
+            f.write("{nope")
+        P.load_config()
+        self.assertTrue(P.segment({}, now=ts(*MON, 10)))
+
+    def test_segment_mode(self):
+        sl = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pet_statusline.py")
+        run = lambda *a: subprocess.run([sys.executable, sl, *a], input='{"model":{"display_name":"Opus"}}',
+                                        text=True, capture_output=True, env=dict(os.environ)).stdout
+        self.assertIn("Opus", run())
+        seg = run("--segment")
+        self.assertNotIn("Opus", seg)
+        self.assertIn("(", seg)
 
     def test_disable(self):
         os.environ["PET_DISABLE"] = "1"

@@ -19,7 +19,7 @@ TUNING = {
     "xp_per_commit": 10, "xp_lines_per_point": 25,
     "xp_mult": [(50, 1.5), (70, 1.0), (101, 0.7)],   # (ctx below, multiplier)
     "level_div": 10, "level_exp": 0.6,        # L5 ≈ 100xp, L15 ≈ 800xp, L30 ≈ 2700xp
-    "active_secs": 300,                       # herdr keeps panes ticking, so only lines/ctx moving counts as you being there
+    "active_secs": 300,                       # long-lived panes keep ticking, so only lines/ctx moving counts as you being there
     "steady_full_hours": 2,                   # active hours in the trait window for a full steady score
     "poll_secs": 60, "git_timeout": 0.5,
     "missed_workdays": 2, "crown_streak": 5, "thriving_streak": 3,
@@ -97,6 +97,21 @@ def home():
 
 def _p(name):
     return os.path.join(home(), name)
+
+def load_config():
+    """Numeric TUNING overrides from PET_HOME/config.json, so tweaks survive `git pull`."""
+    try:
+        with open(_p("config.json")) as f:
+            cfg = json.load(f)
+    except Exception:
+        return
+    if not isinstance(cfg, dict):
+        return
+    for k, v in cfg.items():
+        cur = T.get(k)
+        if (type(cur) in (int, float) and type(v) in (int, float)
+                and not isinstance(v, bool) and not isinstance(cur, bool)):
+            T[k] = v
 
 @contextmanager
 def lock(wait=None):
@@ -663,6 +678,7 @@ def segment(data, colors=None, now=None):
     if os.environ.get("PET_DISABLE") == "1":
         return None
     now = time.time() if now is None else now
+    load_config()
     events = []
     with lock() as got:
         if got:

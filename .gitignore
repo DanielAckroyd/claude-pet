@@ -4,4 +4,5 @@ state.json.*
 events.jsonl
 events.jsonl.*
 .lock
+config.json
 __pycache__/

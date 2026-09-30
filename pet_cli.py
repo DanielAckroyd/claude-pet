@@ -6,6 +6,7 @@
   pet tree       the evolution paths
   pet devolve    drop back a tier (costs xp, re-rolls the next branch; -y skips the prompt)
   pet glyphs     every form × mood × frame, for eyeballing terminal width
+  pet --version
 (No reset: delete ~/.claude/pet/state.json if you really mean it.)"""
 import os, sys, time, datetime as dt
 
@@ -203,6 +204,8 @@ def main(argv):
         glyphs()
     elif cmd == "tree":
         tree()
+    elif cmd in ("--version", "version"):
+        print(f"claude-pet {P.__version__}")
     elif cmd == "devolve":
         devolve(assume_yes="-y" in argv[1:])
     else:

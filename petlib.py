@@ -34,7 +34,8 @@ TUNING = {
     "keep_session_days": 7, "keep_commit_days": 14, "keep_days": 90,
 }
 T = TUNING
-VERSION = 1
+VERSION = 1                                  # state schema
+__version__ = "0.1.0"
 NAMES = ["Biscuit", "Pixel", "Mochi", "Gremlin", "Noodle", "Widget", "Pickle",
          "Sprocket", "Dumpling", "Fizz", "Bramble", "Crumpet", "Toast", "Gizmo"]
 
@@ -93,7 +94,8 @@ CAMEO_ODDS = 200
 
 # --- paths & I/O -------------------------------------------------------------
 def home():
-    return os.environ.get("PET_HOME") or os.path.expanduser("~/.claude/pet")
+    """Where the pet lives: PET_HOME, else next to the code (so any clone location works)."""
+    return os.environ.get("PET_HOME") or os.path.dirname(os.path.realpath(__file__))
 
 def _p(name):
     return os.path.join(home(), name)

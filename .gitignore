@@ -5,4 +5,5 @@ events.jsonl
 events.jsonl.*
 .lock
 config.json
+install.json
 __pycache__/

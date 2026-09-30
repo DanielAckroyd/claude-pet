@@ -6,49 +6,44 @@ A little pet that lives in your Claude Code statusline. It does well when you us
 
 One pet is shared across every Claude session on the machine, so every pane shows the same face and the same animation frame. Everything is local: state lives in a JSON file, the only external command is a local `git log`, and nothing touches the network.
 
-## Install with Claude Code
+## Install
 
-Paste this into Claude Code:
-
-> Install claude-pet from https://github.com/DanielAckroyd/claude-pet by following the "Manual install" section of its README. Clone it to `~/.claude/pet`. Look at my current `statusLine` setting and pick the matching option. Merge the hooks into my existing `~/.claude/settings.json` without removing anything already there, and back the file up first. Then run `pet glyphs` and show me the output.
-
-Restart Claude Code (or start a new session) afterwards and the pet hatches on the first statusline render.
-
-## Manual install
-
-**Requirements:** Claude Code, git, Python 3.9+ (the macOS system `python3` is fine), macOS, Linux or WSL. It doesn't need a particular terminal, multiplexer or font. If a face looks misaligned, `pet glyphs` shows which glyph your font is struggling with.
-
-**1. Clone and put `pet` on your PATH**
+Needs Claude Code, git and Python 3.9+ (the macOS system `python3` is fine) on macOS, Linux or WSL. Any terminal works.
 
 ```sh
 git clone https://github.com/DanielAckroyd/claude-pet ~/.claude/pet
-mkdir -p ~/.local/bin && ln -sf ~/.claude/pet/pet_cli.py ~/.local/bin/pet
+python3 ~/.claude/pet/install.py
 ```
 
-If `~/.local/bin` isn't on your PATH, link it somewhere that is, or run `python3 ~/.claude/pet/pet_cli.py` directly.
+It asks **express** or **custom**:
 
-**2. Add it to your statusline.** Pick the option that matches your `statusLine` in `~/.claude/settings.json`.
+- **Express:** sensible defaults, no questions. If you already have a statusline, the pet goes in front of it and your script stays untouched. Otherwise you get the bundled one (pet, model, context %). It also adds two hooks and a `pet` command in `~/.local/bin`.
+- **Custom:** a quick guide, then a few questions: work hours, where the pet goes, hooks, where `pet` lives, and a name.
 
-*No statusline yet:* use the bundled one (pet, model, context %).
+It backs up `~/.claude/settings.json` before touching it, only adds its own entries, and is safe to re-run. Start a new Claude Code session and your pet hatches.
 
-```json
-"statusLine": {
-  "type": "command",
-  "command": "python3 ~/.claude/pet/pet_statusline.py",
-  "refreshInterval": 5000
-}
-```
+**With Claude Code:** paste this in.
 
-*A shell script (bash, zsh, or anything else):* read stdin once, then pipe it through `--segment`, which prints only the pet.
+> Clone https://github.com/DanielAckroyd/claude-pet to `~/.claude/pet` and run `python3 ~/.claude/pet/install.py --express`. Show me the output.
+
+For a custom install through Claude, ask it to pass the options as flags: `--hours 8-16`, `--statusline wrap|replace|skip`, `--no-hooks`, `--bin DIR` or `--no-bin`, `--name NAME`. Add `--dry-run` to preview first.
+
+**Uninstall:** `python3 ~/.claude/pet/install.py --uninstall` puts your statusline and hooks back the way they were. Your pet stays in `~/.claude/pet` until you delete the folder.
+
+<details>
+<summary>Manual install, or adding the pet inside your own statusline script</summary>
+
+The installer's wrap mode runs your statusline as a child process, which costs a Python start (about 25ms) per render. If you'd rather build the pet into your own script, do that and point the installer at `--statusline skip`.
+
+*A shell script:* read stdin once, then pipe it through `--segment`, which prints only the pet.
 
 ```sh
 input=$(cat)
 pet=$(printf '%s' "$input" | python3 ~/.claude/pet/pet_statusline.py --segment)
-# ...then put "$pet" wherever you like in your output, e.g.
 printf '%s │ %s' "$pet" "$(echo "$input" | jq -r .model.display_name)"
 ```
 
-*A Python script:* import it directly, which saves starting a second Python.
+*A Python script:* import it directly.
 
 ```python
 import os, sys
@@ -64,14 +59,18 @@ except Exception:
     pass
 ```
 
-Either way, set `"refreshInterval": 5000` on your `statusLine` so the animation and decay keep ticking between messages. None of these ever raise; if anything goes wrong the pet just doesn't show.
+Set `"refreshInterval": 5000` on your `statusLine` so it animates between messages. None of these ever raise; if anything goes wrong the pet just doesn't show.
 
-**3. Add the hooks** for auto-compact penalties and clean-wrap bonuses. Merge these into `hooks` in `~/.claude/settings.json`, keeping any hooks you already have:
+*Hooks*, merged into `hooks` in `~/.claude/settings.json`:
 
 ```json
 "PreCompact": [{ "hooks": [{ "type": "command", "command": "python3 ~/.claude/pet/hook.py", "async": true, "timeout": 5 }] }],
 "SessionEnd": [{ "hooks": [{ "type": "command", "command": "python3 ~/.claude/pet/hook.py", "async": true, "timeout": 5 }] }]
 ```
+
+*The `pet` command:* `ln -s ~/.claude/pet/pet_cli.py ~/.local/bin/pet`, or anywhere on your PATH.
+
+</details>
 
 ## How it scores
 
@@ -130,14 +129,13 @@ Put overrides in `~/.claude/pet/config.json`. It's gitignored, so updates won't 
 
 Set `PET_DISABLE=1` to switch the pet off without uninstalling.
 
-## Updating and uninstalling
+## Updating
 
-- **Update:** `git -C ~/.claude/pet pull`. Your pet, log and config are gitignored, so they're kept.
-- **Uninstall:** remove the pet from your `statusLine` and the two hook entries, delete the `pet` symlink, then delete `~/.claude/pet`, which takes your pet with it.
+`git -C ~/.claude/pet pull`. Your pet, log and config are gitignored, so they're kept.
 
 ## Notes
 
 - **Multiple panes:** they share state safely. Updates take an `flock`, and a pane that can't get the lock renders read-only. Per-session baselines mean lines are never counted twice.
 - **Commits:** read with `git log --branches`, at most once a minute per repo, matched exactly on `user.email`. Amends and rebases don't count twice.
 - **Windows:** native Windows isn't supported (it uses `fcntl`), but WSL works.
-- **Tests:** `python3 -m unittest test_petlib.py`. They use a temp `PET_HOME`, so they never touch your real pet.
+- **Tests:** `python3 -m unittest test_petlib.py test_install.py`. They use a temp `PET_HOME`, so they never touch your real pet.

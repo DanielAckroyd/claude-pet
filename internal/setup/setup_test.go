@@ -259,11 +259,14 @@ func TestUninstallWithoutRecordStillUnwraps(t *testing.T) {
 func TestHandIntegratedStatuslineLeftAlone(t *testing.T) {
 	r := newRig(t)
 	script := filepath.Join(r.home, "sl.sh")
-	os.WriteFile(script, []byte("pet=$(claude-pet statusline --segment)\n"), 0o644)
-	r.write(`{"statusLine": {"type": "command", "command": "bash ` + script + `"}}`)
+	_ = os.WriteFile(script, []byte("pet=$(claude-pet statusline --segment)\n"), 0o600)
+
+	// forward slashes, as Claude Code's docs ask for on Windows (Git Bash eats backslashes)
+	cmd := "bash " + filepath.ToSlash(script)
+	r.write(`{"statusLine": {"type": "command", "command": ` + string(mustMarshal(cmd)) + `}}`)
 
 	out, _ := r.run(Options{})
-	if statuslineCmd(r.read()) != "bash "+script || !strings.Contains(out, "already shows the pet") {
+	if statuslineCmd(r.read()) != cmd || !strings.Contains(out, "already shows the pet") {
 		t.Fatal(out)
 	}
 }

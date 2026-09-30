@@ -3,6 +3,8 @@ package main
 
 import (
 	"bufio"
+	"bytes"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -28,6 +30,7 @@ func Version() string {
 			return strings.TrimPrefix(bi.Main.Version, "v")
 		}
 	}
+
 	return version
 }
 
@@ -51,10 +54,12 @@ No reset command: delete ~/.claude/pet/state.json if you really mean it.
 
 func main() {
 	args := os.Args[1:]
+
 	cmd := ""
 	if len(args) > 0 {
 		cmd, args = args[0], args[1:]
 	}
+
 	switch cmd {
 	case "statusline":
 		statusline(args)
@@ -63,7 +68,9 @@ func main() {
 		hook()
 		return
 	}
+
 	pet.LoadConfig()
+
 	switch cmd {
 	case "":
 		sheet()
@@ -71,16 +78,19 @@ func main() {
 		runSetup(args)
 	case "log":
 		n := 20
+
 		if len(args) > 0 {
 			if v, err := strconv.Atoi(args[0]); err == nil {
 				n = v
 			}
 		}
+
 		showLog(n)
 	case "name":
 		if len(args) == 0 || strings.TrimSpace(strings.Join(args, " ")) == "" {
 			fail("claude-pet name NEW — name can't be empty")
 		}
+
 		rename(strings.TrimSpace(strings.Join(args, " ")))
 	case "tree":
 		tree()
@@ -106,23 +116,28 @@ func fail(msg string) {
 // statusline never fails: whatever happens, it prints what it can and exits 0.
 func statusline(args []string) {
 	raw, _ := io.ReadAll(os.Stdin)
+
 	var data map[string]any
 	if json.Unmarshal(raw, &data) != nil {
 		data = map[string]any{}
 	}
-	seg := pet.Segment(data, pet.ANSI, pet.Now())
+
+	seg := pet.Segment(data, pet.ANSI(), pet.Now())
 	mode, wrapped := "", ""
+
 	for i, a := range args {
 		switch a {
 		case "--segment":
 			mode = "segment"
 		case "--wrap":
 			mode = "wrap"
+
 			if i+1 < len(args) {
 				wrapped = args[i+1]
 			}
 		}
 	}
+
 	switch mode {
 	case "segment":
 		fmt.Print(seg)
@@ -141,16 +156,19 @@ func statusline(args []string) {
 		if seg != "" {
 			parts = append(parts, seg)
 		}
+
 		if m, ok := data["model"].(map[string]any); ok {
 			if n, ok := m["display_name"].(string); ok && n != "" {
 				parts = append(parts, n)
 			}
 		}
+
 		if cw, ok := data["context_window"].(map[string]any); ok {
 			if p, ok := cw["used_percentage"].(float64); ok {
 				parts = append(parts, fmt.Sprintf("ctx %d%%", int(p+0.5)))
 			}
 		}
+
 		fmt.Print(strings.Join(parts, " │ "))
 	}
 }
@@ -160,36 +178,38 @@ func runTheirs(cmd string, stdin []byte) string {
 	if cmd == "" {
 		return ""
 	}
-	var c *exec.Cmd
-	if runtime.GOOS == "windows" {
-		if sh, err := exec.LookPath("bash"); err == nil {
-			c = exec.Command(sh, "-c", cmd)
-		} else {
-			c = exec.Command("cmd", "/C", cmd)
-		}
-	} else {
-		c = exec.Command("sh", "-c", cmd)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	name, args := shellFor(cmd)
+
+	c := exec.CommandContext(ctx, name, args...)
+	c.Stdin = bytes.NewReader(stdin)
+
+	out, _ := c.Output()
+
+	return string(out)
+}
+
+// shellFor matches how Claude Code itself runs commands: sh, or on Windows Git Bash with PowerShell as the fallback.
+func shellFor(cmd string) (string, []string) {
+	if runtime.GOOS != "windows" {
+		return "sh", []string{"-c", cmd}
 	}
-	c.Stdin = strings.NewReader(string(stdin))
-	done := make(chan []byte, 1)
-	go func() {
-		out, _ := c.Output()
-		done <- out
-	}()
-	select {
-	case out := <-done:
-		return string(out)
-	case <-time.After(10 * time.Second):
-		if c.Process != nil {
-			c.Process.Kill()
-		}
-		return ""
+
+	if sh, err := exec.LookPath("bash"); err == nil {
+		return sh, []string{"-c", cmd}
 	}
+
+	return "powershell", []string{"-NoProfile", "-Command", cmd}
 }
 
 func hook() {
-	defer func() { recover(); os.Exit(0) }()
+	defer func() { _ = recover(); os.Exit(0) }()
+
 	raw, _ := io.ReadAll(os.Stdin)
+
 	var data map[string]any
 	if json.Unmarshal(raw, &data) == nil {
 		pet.HandleHook(data, pet.Now())
@@ -197,8 +217,22 @@ func hook() {
 }
 
 func runSetup(args []string) {
+	o, express := parseSetupFlags(args)
+	o.Interactive = isTerminal(os.Stdin) // not just "a char device": /dev/null is one too
+
+	if !o.Uninstall && !express && !o.Custom {
+		chooseMode(&o)
+	}
+
+	if err := setup.Run(o); err != nil {
+		fail(err.Error())
+	}
+}
+
+func parseSetupFlags(args []string) (setup.Options, bool) {
 	fs := flag.NewFlagSet("setup", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
+
 	express := fs.Bool("express", false, "")
 	custom := fs.Bool("custom", false, "")
 	uninstall := fs.Bool("uninstall", false, "")
@@ -207,48 +241,57 @@ func runSetup(args []string) {
 	sl := fs.String("statusline", "", "")
 	noHooks := fs.Bool("no-hooks", false, "")
 	name := fs.String("name", "", "")
+
 	if err := fs.Parse(args); err != nil {
 		fmt.Print(setupUsage)
 		os.Exit(2)
 	}
-	o := setup.Options{Custom: *custom, Uninstall: *uninstall, DryRun: *dry, Statusline: *sl, Name: *name,
-		In: os.Stdin, Out: os.Stdout, Version: Version()}
+
 	if *sl != "" && *sl != "wrap" && *sl != "replace" && *sl != "skip" {
 		fail("--statusline is wrap, replace or skip")
 	}
+
+	o := setup.Options{Custom: *custom, Uninstall: *uninstall, DryRun: *dry, Statusline: *sl, Name: *name,
+		In: os.Stdin, Out: os.Stdout, Version: Version()}
+
 	if *noHooks {
 		f := false
 		o.Hooks = &f
 	}
+
 	if *hours != "" {
 		h, err := setup.ParseHours(*hours)
 		if err != nil {
 			fail("--hours looks like 9-17")
 		}
+
 		o.Hours = h
 	}
-	o.Interactive = isTerminal(os.Stdin) // not just "a char device": /dev/null is one too
-	if !o.Uninstall && !*express && !*custom {
-		if o.Hours != nil || o.Statusline != "" || o.Hooks != nil || o.Name != "" {
-			o.Custom = true
-		} else if o.Interactive {
-			fmt.Printf("\033[1mclaude-pet %s\033[0m\n\n", Version())
-			fmt.Println("  \033[1mexpress\033[0m  defaults for everything, takes a second")
-			fmt.Printf("  \033[1mcustom\033[0m   a few questions and a quick guide\n\n")
-			fmt.Print("Express or custom? \033[2m[express]\033[0m ")
-			br := bufio.NewReader(os.Stdin) // shared with setup's prompts, so no buffered input is lost
-			line, _ := br.ReadString('\n')
-			a := strings.ToLower(strings.TrimSpace(line))
-			o.Custom = a == "custom" || a == "c"
-			o.In = br
-			fmt.Println()
-		} else {
-			fmt.Print(setupUsage)
-			os.Exit(2)
-		}
-	}
-	if err := setup.Run(o); err != nil {
-		fail(err.Error())
+
+	return o, *express
+}
+
+// chooseMode settles express vs custom when neither flag was given.
+func chooseMode(o *setup.Options) {
+	switch {
+	case o.Hours != nil || o.Statusline != "" || o.Hooks != nil || o.Name != "":
+		o.Custom = true
+	case o.Interactive:
+		fmt.Printf("\033[1mclaude-pet %s\033[0m\n\n", Version())
+		fmt.Println("  \033[1mexpress\033[0m  defaults for everything, takes a second")
+		fmt.Printf("  \033[1mcustom\033[0m   a few questions and a quick guide\n\n")
+		fmt.Print("Express or custom? \033[2m[express]\033[0m ")
+
+		br := bufio.NewReader(os.Stdin) // shared with setup's prompts, so no buffered input is lost
+		line, _ := br.ReadString('\n')
+		a := strings.ToLower(strings.TrimSpace(line))
+		o.Custom = a == "custom" || a == "c"
+		o.In = br
+
+		fmt.Println()
+	default:
+		fmt.Print(setupUsage)
+		os.Exit(2)
 	}
 }
 

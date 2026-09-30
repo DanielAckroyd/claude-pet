@@ -13,7 +13,8 @@ func tryLock(f *os.File) (bool, error) {
 	if errors.Is(err, syscall.EWOULDBLOCK) {
 		return false, nil
 	}
+
 	return err == nil, err
 }
 
-func unlock(f *os.File) { syscall.Flock(int(f.Fd()), syscall.LOCK_UN) }
+func unlock(f *os.File) { _ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN) }

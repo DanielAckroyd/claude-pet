@@ -8,21 +8,7 @@ One pet is shared across every Claude session on the machine, so every pane show
 
 ## Install
 
-One binary, no runtime to install. Pick whichever you like:
-
-```sh
-# macOS / Linux
-brew install danielackroyd/tap/claude-pet
-
-# Windows
-scoop bucket add danielackroyd https://github.com/DanielAckroyd/homebrew-tap
-scoop install claude-pet
-
-# anywhere with Go
-go install github.com/DanielAckroyd/claude-pet@latest
-```
-
-No package manager? The one-line scripts download the latest release, check its checksum and run setup for you:
+One binary, no runtime to install. The one-line scripts download the latest release, check its checksum and run setup for you:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/DanielAckroyd/claude-pet/main/install.sh | sh        # macOS / Linux
@@ -31,7 +17,9 @@ curl -fsSL https://raw.githubusercontent.com/DanielAckroyd/claude-pet/main/insta
 irm https://raw.githubusercontent.com/DanielAckroyd/claude-pet/main/install.ps1 | iex             # Windows
 ```
 
-Then wire it into Claude Code:
+With Go installed, `go install github.com/DanielAckroyd/claude-pet@latest` works too, or grab a binary from the [releases page](https://github.com/DanielAckroyd/claude-pet/releases).
+
+If you installed without the script, wire it into Claude Code:
 
 ```sh
 claude-pet setup
@@ -46,11 +34,11 @@ It backs up `~/.claude/settings.json` before touching it, keeps everything else 
 
 **With Claude Code:** paste this in.
 
-> Install claude-pet (brew install danielackroyd/tap/claude-pet, or see https://github.com/DanielAckroyd/claude-pet for other options), then run `claude-pet setup --express` and show me the output.
+> Install claude-pet by running `curl -fsSL https://raw.githubusercontent.com/DanielAckroyd/claude-pet/main/install.sh | sh` (on Windows, the install.ps1 line from https://github.com/DanielAckroyd/claude-pet), then run `claude-pet setup --express` and show me the output.
 
 For a custom setup through Claude, ask it to pass the options as flags: `--hours 8-16`, `--statusline wrap|replace|skip`, `--no-hooks`, `--name NAME`. Add `--dry-run` to preview first.
 
-**Uninstall:** `claude-pet setup --uninstall` puts your statusline and hooks back the way they were. Then remove the binary the way you installed it (e.g. `brew uninstall claude-pet`). Your pet stays in `~/.claude/pet` until you delete the folder.
+**Uninstall:** `claude-pet setup --uninstall` puts your statusline and hooks back the way they were. Then delete the `claude-pet` binary (the install script puts it in `~/.local/bin`, or `%LOCALAPPDATA%\Programs\claude-pet` on Windows). Your pet stays in `~/.claude/pet` until you delete the folder.
 
 <details>
 <summary>Adding the pet inside your own statusline script</summary>
@@ -132,7 +120,7 @@ Set `PET_DISABLE=1` to switch the pet off without uninstalling.
 
 ## Updating
 
-`brew upgrade claude-pet`, `scoop update claude-pet`, `go install github.com/DanielAckroyd/claude-pet@latest`, or re-run the install script. Your pet lives in `~/.claude/pet`, separate from the binary, so it carries over.
+Re-run the install script (or `go install github.com/DanielAckroyd/claude-pet@latest`). Your pet lives in `~/.claude/pet`, separate from the binary, so it carries over.
 
 ## Notes
 

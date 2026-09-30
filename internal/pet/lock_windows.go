@@ -35,5 +35,5 @@ func tryLock(f *os.File) (bool, error) {
 
 func unlock(f *os.File) {
 	var ol syscall.Overlapped
-	procUnlockFileEx.Call(f.Fd(), 0, 1, 0, uintptr(unsafe.Pointer(&ol)))
+	_, _, _ = procUnlockFileEx.Call(f.Fd(), 0, 1, 0, uintptr(unsafe.Pointer(&ol)))
 }

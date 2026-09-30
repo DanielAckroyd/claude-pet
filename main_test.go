@@ -9,33 +9,46 @@ import (
 	"testing"
 )
 
-var binPath string
+// binPath is the binary TestMain built, passed through the environment rather than a global.
+func binPath() string { return os.Getenv("CLAUDE_PET_TEST_BIN") }
 
 func TestMain(m *testing.M) {
 	dir, _ := os.MkdirTemp("", "claude-pet-bin")
-	binPath = filepath.Join(dir, "claude-pet")
+
+	bin := filepath.Join(dir, "claude-pet")
 	if runtime.GOOS == "windows" {
-		binPath += ".exe"
+		bin += ".exe"
 	}
-	if out, err := exec.Command("go", "build", "-o", binPath, ".").CombinedOutput(); err != nil {
-		os.Stderr.Write(out)
+
+	_ = os.Setenv("CLAUDE_PET_TEST_BIN", bin)
+
+	if out, err := exec.Command("go", "build", "-o", bin, ".").CombinedOutput(); err != nil {
+		_, _ = os.Stderr.Write(out)
+
 		os.Exit(1)
 	}
+
 	code := m.Run()
-	os.RemoveAll(dir)
+
+	_ = os.RemoveAll(dir)
+
 	os.Exit(code)
 }
 
 func run(t *testing.T, stdin string, args ...string) (string, int) {
 	t.Helper()
-	c := exec.Command(binPath, args...)
+
+	c := exec.Command(binPath(), args...)
+
 	c.Env = append(os.Environ(), "PET_HOME="+t.TempDir())
 	c.Stdin = strings.NewReader(stdin)
 	out, err := c.Output()
+
 	code := 0
 	if e, ok := err.(*exec.ExitError); ok {
 		code = e.ExitCode()
 	}
+
 	return string(out), code
 }
 
@@ -46,6 +59,7 @@ func TestStatuslineModes(t *testing.T) {
 	if code != 0 || !strings.Contains(out, "(") || !strings.HasSuffix(out, "Opus │ ctx 34%") {
 		t.Fatalf("%d %q", code, out)
 	}
+
 	seg, _ := run(t, payload, "statusline", "--segment")
 	if strings.Contains(seg, "Opus") || !strings.Contains(seg, "(") {
 		t.Fatalf("%q", seg)
@@ -68,7 +82,9 @@ func TestWrapPrefixesAndPassesStdin(t *testing.T) {
 	if !strings.HasSuffix(out, " "+payload) || !strings.HasPrefix(out, "\033[") {
 		t.Fatalf("%q", out)
 	}
+
 	out, _ = run(t, payload, "statusline", "--wrap", `printf 'one\ntwo\n'`)
+
 	lines := strings.Split(out, "\n")
 	if len(lines) != 2 || !strings.HasSuffix(lines[0], " one") || lines[1] != "two" {
 		t.Fatalf("%q", out)
@@ -85,13 +101,15 @@ func TestHookIsSilent(t *testing.T) {
 }
 
 func TestSetupNonInteractiveWithoutFlagShowsHelp(t *testing.T) {
-	c := exec.Command(binPath, "setup")
+	c := exec.Command(binPath(), "setup")
 	home := t.TempDir()
 	c.Env = append(os.Environ(), "HOME="+home, "USERPROFILE="+home, "PET_HOME="+t.TempDir())
+
 	out, _ := c.Output()
 	if c.ProcessState.ExitCode() != 2 || !strings.Contains(string(out), "--express") {
 		t.Fatalf("%d %s", c.ProcessState.ExitCode(), out)
 	}
+
 	if _, err := os.Stat(filepath.Join(home, ".claude", "settings.json")); err == nil {
 		t.Fatal("wrote settings")
 	}
@@ -103,6 +121,7 @@ func TestCommands(t *testing.T) {
 			t.Fatalf("%v exited %d", args, code)
 		}
 	}
+
 	if _, code := run(t, "", "nope"); code != 2 {
 		t.Fatal("unknown command should exit 2")
 	}

@@ -338,3 +338,16 @@ func TestParseHours(t *testing.T) {
 		t.Fatal(h, err)
 	}
 }
+
+func TestWindowsPathsUseForwardSlashes(t *testing.T) {
+	win := shellPath(`C:\Users\x\AppData\Local\Programs\claude-pet\claude-pet.exe`, "windows")
+	if win != "C:/Users/x/AppData/Local/Programs/claude-pet/claude-pet.exe" {
+		t.Fatal(win)
+	}
+	if got := ShellSplit(ShellQuote(win) + " statusline"); got[0] != win {
+		t.Fatal(got)
+	}
+	if shellPath("/opt/homebrew/bin/claude-pet", "darwin") != "/opt/homebrew/bin/claude-pet" {
+		t.Fatal("unix path changed")
+	}
+}

@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -62,6 +63,15 @@ func ResolveBin() string {
 		return p
 	}
 	return "claude-pet"
+}
+
+// shellPath makes a path safe for the shell Claude Code runs commands in. On Windows that's
+// Git Bash (or PowerShell), where backslashes are escapes, so the docs say to use forward slashes.
+func shellPath(p, goos string) string {
+	if goos == "windows" {
+		return strings.ReplaceAll(p, `\`, "/")
+	}
+	return p
 }
 
 func loadSettings() (*Object, error) {
@@ -406,7 +416,7 @@ func Run(o Options) error {
 		o.Out = os.Stdout
 	}
 	if o.Bin == "" {
-		o.Bin = ResolveBin()
+		o.Bin = shellPath(ResolveBin(), runtime.GOOS)
 	}
 	if o.In == nil {
 		o.In = os.Stdin

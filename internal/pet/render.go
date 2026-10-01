@@ -72,11 +72,13 @@ type Mood struct {
 	Key, Eyes, Mouth, Word, Color string
 }
 
-// Moods are the moods in priority order (see MoodOf).
+// Moods are the moods in priority order (see MoodOf). chilly and stuffed are per-session warnings (see Render).
 func Moods() []Mood {
 	return []Mood{
 		{"bloated", "°", "□", "bloated", "bad"},
 		{"wilting", ";", "_", "wilting", "bad"},
+		{"chilly", "°", "~", "chilly", "meh"},
+		{"stuffed", "•", "ε", "stuffed", "meh"},
 		{"missed", "T", "_", "missed you", "meh"},
 		{"exhausted", "×", "_", "exhausted", "bad"},
 		{"starving", "•", "ロ", "starving", "bad"},
@@ -214,10 +216,15 @@ func Cameo(now float64) string {
 }
 
 // Render is the statusline segment: face, charm, crown, cameo, and the mood word (or a reaction).
-func (s *State) Render(now float64, colors Colors) string {
+// warn is this pane's session warning; it only beats the shared mood when that isn't serious.
+func (s *State) Render(now float64, colors Colors, warn string) string {
 	s.Ensure()
 
 	mk, word := s.MoodOf(now), ""
+	if _, ok := moodByKey(warn); ok && mk != "bloated" && mk != "wilting" {
+		mk = warn
+	}
+
 	if r := s.Status.React; r != nil && now < r.Until {
 		if _, ok := moodByKey(r.Mood); ok {
 			mk, word = r.Mood, r.Text

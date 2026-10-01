@@ -325,6 +325,41 @@ func TestAutoVsManualCompact(t *testing.T) {
 	near(t, s.Days["2026-09-28"].AutoCompacts, 1, 0, "count")
 }
 
+// cached is a payload with Claude Code's prompt cache counters attached.
+func cached(sid string, causes map[string]any, recache float64) map[string]any {
+	d := pl{sid: sid}.m()
+	d["prompt_cache"] = map[string]any{"miss_causes": causes, "miss_recache_tokens": recache}
+
+	return d
+}
+
+func TestColdCache(t *testing.T) {
+	env(t)
+
+	now := monAt(10, 0)
+	s, ev := fresh(now), []Event{}
+	tick(s, now, &ev, cached("A", map[string]any{"ttl_expired_1h": 2.0}, 90_000))
+	near(t, s.Stats.Fit, 70, 0, "first sighting is a baseline")
+
+	tick(s, now+60, &ev, cached("A", map[string]any{"ttl_expired_1h": 2.0, "messages_rewritten": 1.0}, 120_000))
+	near(t, s.Stats.Fit, 70, 0, "non-TTL miss is neutral")
+
+	tick(s, now+120, &ev, cached("A", map[string]any{"ttl_expired_1h": 3.0, "messages_rewritten": 1.0}, 200_000))
+	near(t, s.Stats.Fit, 66, 0, "80k re-cached")
+	near(t, s.Days["2026-09-28"].ColdCaches, 1, 0, "count")
+
+	tick(s, now+180, &ev, cached("A", map[string]any{"ttl_expired_1h": 3.0, "messages_rewritten": 1.0}, 200_000))
+	near(t, s.Stats.Fit, 66, 0, "repeat render doesn't double count")
+
+	tick(s, now+240, &ev, cached("A", map[string]any{"ttl_expired_5m": 1.0}, 900_000))
+	near(t, s.Stats.Fit, 51, 0, "restarted counter, capped size")
+
+	b := fresh(now)
+	tick(b, now, &ev, pl{sid: "B"}.m())
+	tick(b, now+60, &ev, cached("B", map[string]any{"ttl_expired_1h": 4.0}, 400_000))
+	near(t, b.Stats.Fit, 70, 0, "counter appearing on a known session is a baseline")
+}
+
 func wrapFit(_ *testing.T, ctx, lines float64, reason string) *State {
 	now := monAt(10, 0)
 	s, ev := fresh(now), []Event{}
@@ -497,7 +532,7 @@ func TestStreakProvisionalTodayAndCrown(t *testing.T) {
 	s.Streak.Count = 4
 
 	s.Days["2026-10-06"] = &Day{Commits: 1, Fit: 80}
-	if s.CurrentStreak(now) != 5 || !strings.Contains(s.Render(now, nil), Crown) {
+	if s.CurrentStreak(now) != 5 || !strings.Contains(s.Render(now, nil, ""), Crown) {
 		t.Fatal("no crown")
 	}
 }
@@ -877,7 +912,7 @@ func TestRenderUsesLook(t *testing.T) {
 	s.LastCommitAt = &now
 	s.Look = &Look{Eyes: "◕", Charm: "✿", Shiny: true}
 
-	got := s.Render(now, Colors{"good": "G", "meh": "M", "bad": "B", "reset": "R"})
+	got := s.Render(now, Colors{"good": "G", "meh": "M", "bad": "B", "reset": "R"}, "")
 	if got != Shiny+"(◕ᴗ◕)✿ contentR" {
 		t.Fatalf("%q", got)
 	}
@@ -891,12 +926,78 @@ func TestReactionThenMood(t *testing.T) {
 	s.LastCommitAt = &now
 	s.react(now, "nom +15xp", "thriving")
 
-	if r := s.Render(now, nil); !strings.Contains(r, "nom +15xp") || !strings.Contains(r, "(^ᴗ^)") {
+	if r := s.Render(now, nil, ""); !strings.Contains(r, "nom +15xp") || !strings.Contains(r, "(^ᴗ^)") {
 		t.Fatal(r)
 	}
 
-	if r := s.Render(now+31, nil); !strings.Contains(r, "content") {
+	if r := s.Render(now+31, nil, ""); !strings.Contains(r, "content") {
 		t.Fatal(r)
+	}
+}
+
+func TestWarning(t *testing.T) {
+	env(t)
+
+	now := monAt(10, 0)
+	cache := func(warm bool, ttl string, left float64) map[string]any {
+		return map[string]any{"prompt_cache": map[string]any{"warm": warm, "ttl": ttl, "expires_at": now + left}}
+	}
+	want := func(d map[string]any, w, what string) {
+		t.Helper()
+
+		if got := Warning(d, now); got != w {
+			t.Fatalf("%s: got %q want %q", what, got, w)
+		}
+	}
+
+	want(cache(true, "1h", 13*60), "", "plenty of TTL left")
+	want(cache(true, "1h", 11*60), "chilly", "last fifth of 1h")
+	want(cache(true, "5m", 90), "", "5m TTL scales the window")
+	want(cache(true, "5m", 50), "chilly", "last fifth of 5m")
+	want(cache(false, "1h", 60), "", "already cold")
+	want(cache(true, "1h", -5), "", "expired")
+
+	window := func(pct, size float64) map[string]any {
+		return map[string]any{"context_window": map[string]any{"used_percentage": pct, "context_window_size": size}}
+	}
+	want(window(39, 1_000_000), "", "1M window under 400k")
+	want(window(40, 1_000_000), "stuffed", "1M window at 400k")
+	want(window(69, 200_000), "", "200k window under 70%")
+	want(window(70, 200_000), "stuffed", "200k window at 70%")
+	want(pl{ctx: f(70)}.m(), "stuffed", "ctx at threshold")
+	want(pl{ctx: f(69)}.m(), "", "ctx under")
+
+	both := cache(true, "1h", 60)
+	both["context_window"] = map[string]any{"used_percentage": 90.0}
+	want(both, "chilly", "chilly beats stuffed")
+}
+
+func TestWarningIsPerPane(t *testing.T) {
+	env(t)
+
+	now := monAt(10, 0) + 1
+	s := fresh(now)
+	s.LastCommitAt = &now
+
+	if r := s.Render(now, nil, "chilly"); !strings.Contains(r, "(°~°) chilly") {
+		t.Fatal(r)
+	}
+
+	if r := s.Render(now, nil, ""); !strings.Contains(r, "content") {
+		t.Fatal("other panes keep the shared mood: " + r)
+	}
+
+	s.react(now, "nom +15xp", "thriving")
+
+	if r := s.Render(now, nil, "stuffed"); !strings.Contains(r, "nom +15xp") {
+		t.Fatal("reaction wins: " + r)
+	}
+
+	s.Status.React = nil
+	s.Status.BloatedUntil = now + 60
+
+	if r := s.Render(now, nil, "stuffed"); !strings.Contains(r, "bloated") {
+		t.Fatal("bloated wins: " + r)
 	}
 }
 

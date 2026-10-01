@@ -10,6 +10,7 @@ import (
 	"math/rand/v2"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -22,6 +23,8 @@ type Tuning struct {
 	FitCleanWrap, CleanWrapCtx                      float64
 	FitAutoCompact, BloatedSecs                     float64
 	FitRedlineCtx, FitRedlinePerMin                 float64
+	FitColdPer100k, ColdCapTokens                   float64 // cache expired mid-session, sized by tokens re-cached
+	ChillyFrac, StuffedCtx, StuffedTokens           float64 // session warnings: last fraction of cache TTL; ctx %
 	RestedEasyUntil, RestedMinTarget, RestedNeutral float64
 	RestedTauSecs                                   float64
 	XPPerCommit, XPLinesPerPoint                    float64
@@ -51,7 +54,8 @@ func DefaultTuning() Tuning {
 		WorkStart: 9, WorkEnd: 17, Floor: 5,
 		FedPerCommit: 15, FedLinesPerPoint: 20, FedLinesCap: 10, FedDecayPerMin: 0.2,
 		FitCleanWrap: 12, CleanWrapCtx: 70, FitAutoCompact: -20, BloatedSecs: 30 * 60,
-		FitRedlineCtx: 80, FitRedlinePerMin: 0.1,
+		FitRedlineCtx: 80, FitRedlinePerMin: 0.1, FitColdPer100k: 5, ColdCapTokens: 300_000,
+		ChillyFrac: 0.2, StuffedCtx: 70, StuffedTokens: 400_000,
 		RestedEasyUntil: 50, RestedMinTarget: 10, RestedNeutral: 80, RestedTauSecs: 600,
 		XPPerCommit: 10, XPLinesPerPoint: 25, LevelDiv: 10, LevelExp: 0.6,
 		ActiveSecs: 300, SteadyFullHours: 2, PollSecs: 60, GitTimeout: 0.5,
@@ -73,6 +77,8 @@ func (t *Tuning) fields() map[string]*float64 {
 		"fit_clean_wrap": &t.FitCleanWrap, "clean_wrap_ctx": &t.CleanWrapCtx,
 		"fit_auto_compact": &t.FitAutoCompact, "bloated_secs": &t.BloatedSecs,
 		"fit_redline_ctx": &t.FitRedlineCtx, "fit_redline_per_min": &t.FitRedlinePerMin,
+		"fit_cold_per_100k": &t.FitColdPer100k, "cold_cap_tokens": &t.ColdCapTokens,
+		"chilly_frac": &t.ChillyFrac, "stuffed_ctx": &t.StuffedCtx, "stuffed_tokens": &t.StuffedTokens,
 		"rested_easy_until": &t.RestedEasyUntil, "rested_min_target": &t.RestedMinTarget,
 		"rested_neutral": &t.RestedNeutral, "rested_tau_secs": &t.RestedTauSecs,
 		"xp_per_commit": &t.XPPerCommit, "xp_lines_per_point": &t.XPLinesPerPoint,
@@ -140,6 +146,8 @@ type Session struct {
 	Cwd      string   `json:"cwd"`
 	Top      string   `json:"top"`
 	ActiveAt float64  `json:"active_at,omitempty"`
+	Cold     *float64 `json:"cold,omitempty"`    // Claude Code's TTL-expiry miss count, as last seen
+	Recache  *float64 `json:"recache,omitempty"` // Claude Code's miss re-cache tokens, as last seen
 }
 
 // Repo throttles commit polling for one repository.
@@ -155,6 +163,7 @@ type Day struct {
 	XP           float64 `json:"xp"`
 	AutoCompacts float64 `json:"auto_compacts"`
 	CleanWraps   float64 `json:"clean_wraps"`
+	ColdCaches   float64 `json:"cold_caches"`
 	Fit          float64 `json:"fit"`
 }
 
@@ -697,6 +706,8 @@ type payload struct {
 	lines, ctx *float64
 	five       *float64
 	cwd        string
+	cold       *float64 // prompt cache misses caused by TTL expiry; other causes aren't idling
+	recache    *float64
 }
 
 func parsePayload(data map[string]any) payload {
@@ -709,6 +720,21 @@ func parsePayload(data map[string]any) payload {
 	if p.cwd == "" {
 		p.cwd = str(data["cwd"])
 	}
+
+	pc := obj(data, "prompt_cache")
+	if causes, ok := pc["miss_causes"].(map[string]any); ok {
+		v := 0.0
+
+		for k, n := range causes {
+			if x := num(n); x != nil && strings.HasPrefix(k, "ttl_expired") {
+				v += *x
+			}
+		}
+
+		p.cold = &v
+	}
+
+	p.recache = num(pc["miss_recache_tokens"])
 
 	cost := obj(data, "cost")
 	added, removed := num(cost["total_lines_added"]), num(cost["total_lines_removed"])
@@ -729,6 +755,35 @@ func parsePayload(data map[string]any) payload {
 	return p
 }
 
+// Warning is this pane's session-only mood ("chilly", "stuffed" or ""), read straight off its payload.
+func Warning(data map[string]any, now float64) string {
+	pc := obj(data, "prompt_cache")
+	if warm, _ := pc["warm"].(bool); warm {
+		ttl, err := time.ParseDuration(str(pc["ttl"]))
+		if err != nil {
+			ttl = time.Hour
+		}
+
+		if exp := num(pc["expires_at"]); exp != nil && *exp > now && *exp-now < ttl.Seconds()*T.ChillyFrac {
+			return "chilly"
+		}
+	}
+
+	cw := obj(data, "context_window")
+	if ctx := num(cw["used_percentage"]); ctx != nil {
+		// big windows go stuffed on absolute size, long before 70%
+		if size := num(cw["context_window_size"]); size != nil && *ctx/100*(*size) >= T.StuffedTokens {
+			return "stuffed"
+		}
+
+		if *ctx >= T.StuffedCtx {
+			return "stuffed"
+		}
+	}
+
+	return ""
+}
+
 func (s *State) observe(data map[string]any, now float64, events *[]Event, poll bool) {
 	p := parsePayload(data)
 
@@ -740,7 +795,7 @@ func (s *State) observe(data map[string]any, now float64, events *[]Event, poll 
 		return
 	}
 
-	sess := s.trackSession(p, now)
+	sess := s.trackSession(p, now, events)
 	s.accrueTemper(p.five, now)
 
 	if poll && p.cwd != "" {
@@ -756,10 +811,10 @@ func (s *State) observe(data map[string]any, now float64, events *[]Event, poll 
 }
 
 // trackSession updates one session's baseline, gains and activity from a payload.
-func (s *State) trackSession(p payload, now float64) *Session {
+func (s *State) trackSession(p payload, now float64, events *[]Event) *Session {
 	sess := s.Sessions[p.sid]
 	if sess == nil {
-		sess = &Session{Lines: p.lines, LastCtx: p.ctx, LastSeen: now}
+		sess = &Session{Lines: p.lines, LastCtx: p.ctx, LastSeen: now, Cold: p.cold, Recache: p.recache}
 		if p.ctx != nil {
 			sess.MaxCtx = *p.ctx
 		}
@@ -791,9 +846,55 @@ func (s *State) trackSession(p payload, now float64) *Session {
 		sess.MaxCtx = math.Max(sess.MaxCtx, *p.ctx)
 	}
 
+	s.coldCache(sess, p, now, events)
 	sess.LastSeen = now
 
 	return sess
+}
+
+// grown is how far a cumulative counter rose; a drop means Claude Code restarted it (e.g. a resume).
+func grown(was, is *float64) float64 {
+	switch {
+	case is == nil || was == nil:
+		return 0
+	case *is < *was:
+		return *is
+	default:
+		return *is - *was
+	}
+}
+
+// coldCache penalises coming back to a session after its prompt cache expired.
+func (s *State) coldCache(sess *Session, p payload, now float64, events *[]Event) {
+	if p.cold == nil {
+		return
+	}
+
+	if sess.Cold == nil { // first sighting of the counter is a baseline, not a miss
+		sess.Cold, sess.Recache = p.cold, p.recache
+
+		return
+	}
+
+	misses := grown(sess.Cold, p.cold)
+	tokens := grown(sess.Recache, p.recache)
+	sess.Cold, sess.Recache = p.cold, p.recache
+
+	if misses <= 0 {
+		return
+	}
+
+	if p.recache == nil {
+		tokens = 100_000 * misses // no size reported: charge a typical context
+	}
+
+	hit := T.FitColdPer100k * math.Min(tokens, T.ColdCapTokens) / 100_000
+	s.Stats.Fit -= hit
+	s.day(now).ColdCaches += misses
+	s.Temper.Tidy -= misses
+	s.react(now, fmt.Sprintf("brr -%dfit", int(math.Round(hit))), "sulky")
+	*events = append(*events, ev(now, "cold_cache", fmt.Sprintf("prompt cache expired, %dk tokens re-cached",
+		int(math.Round(tokens/1000)))))
 }
 
 // accrueTemper counts active work minutes as calm or hot, by 5h rate-limit usage.

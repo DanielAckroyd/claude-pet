@@ -65,11 +65,13 @@ Set `"refreshInterval": 5000` on your `statusLine` so it animates between messag
 | Stat | Goes up | Goes down |
 |---|---|---|
 | **fed** | Commits (+15), lines changed | Slowly over work hours |
-| **fit** | Clean wraps: ending a session that shipped something while context is under 70% | Auto-compacts (-20, and it's bloated for 30 min), working in a session above 80% context |
+| **fit** | Clean wraps: ending a session that shipped something while context is under 70% | Auto-compacts (-20, and it's bloated for 30 min), working in a session above 80% context, coming back to a session after its prompt cache expired (-5 per 100k tokens re-cached, max -15) |
 | **rested** | Tracks your 5h rate limit usage, full while you're under 50% | Falls as you approach 100% |
 | **xp** | Commits (x1.5 if context is under 50%), lines changed | Only when it devolves |
 
 Decay only counts work hours (Mon to Fri, 09:00 to 17:00 local by default), so evenings and weekends are free. Manual `/compact` is neutral. Stats floor at 5 and the pet never dies. A streak counts weekdays with at least one commit that ended with fit ≥ 50, and at 5+ days it gets a crown ♔.
+
+Two warnings show only in the pane whose session triggered them, while every other pane keeps the shared mood: **chilly** `(°~°)` when that session's prompt cache is about to expire (send a message or wrap up), and **stuffed** `(•ε•)` when its context is over 70% or past 400k tokens. Neither changes stats; bloated and wilting still take priority.
 
 Commits are counted from the repo you're working in, matched on that repo's `user.email`, so make sure it's set. Rate limit data only comes through on Claude subscription plans. On an API key, rested sits at a neutral 80 and the steady trait won't build.
 
@@ -86,7 +88,7 @@ The hatchling picks a species at L5 based on how you've worked over roughly the 
 ```
 
 - **shipper:** committing regularly
-- **tidy:** clean wraps, minus auto-compacts
+- **tidy:** clean wraps, minus auto-compacts and cold caches
 - **steady:** active time spent under 50% of your 5h limit
 - The fox is the hidden one. You'll have to find it.
 

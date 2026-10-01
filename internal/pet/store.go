@@ -234,7 +234,7 @@ func Segment(data map[string]any, colors Colors, now float64) (out string) {
 		return ""
 	}
 
-	return s.Render(now, colors)
+	return s.Render(now, colors, Warning(data, now))
 }
 
 // HandleHook applies a PreCompact/SessionEnd payload. Async hook, so it can wait out a tick.

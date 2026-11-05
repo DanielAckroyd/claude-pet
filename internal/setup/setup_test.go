@@ -88,10 +88,10 @@ func mustJSON(t *testing.T, s string) map[string]any {
 	return m
 }
 
-func TestExpressFresh(t *testing.T) {
+func TestStatuslineFresh(t *testing.T) {
 	r := newRig(t)
 
-	out, err := r.run(Options{})
+	out, err := r.run(Options{Statusline: "replace"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,11 +126,11 @@ const existing = `{
   "zzz": "<keep & order>"
 }`
 
-func TestExpressWrapsExistingAndKeepsEverythingElse(t *testing.T) {
+func TestStatuslineWrapsExistingAndKeepsEverythingElse(t *testing.T) {
 	r := newRig(t)
 	r.write(existing)
 
-	if _, err := r.run(Options{}); err != nil {
+	if _, err := r.run(Options{Statusline: "wrap"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -204,9 +204,9 @@ func TestHookOrderPreserved(t *testing.T) {
 
 func TestRerunIsIdempotent(t *testing.T) {
 	r := newRig(t)
-	r.run(Options{})
+	r.run(Options{Statusline: "wrap"})
 	first, _ := os.ReadFile(r.settings)
-	out, _ := r.run(Options{})
+	out, _ := r.run(Options{Statusline: "wrap"})
 
 	second, _ := os.ReadFile(r.settings)
 	if string(first) != string(second) || !strings.Contains(out, "already") {
@@ -217,7 +217,7 @@ func TestRerunIsIdempotent(t *testing.T) {
 func TestUninstallRestoresExactly(t *testing.T) {
 	r := newRig(t)
 	r.write(existing)
-	r.run(Options{})
+	r.run(Options{Statusline: "wrap"})
 
 	if _, err := r.run(Options{Uninstall: true}); err != nil {
 		t.Fatal(err)
@@ -237,7 +237,7 @@ func TestUninstallRestoresExactly(t *testing.T) {
 
 func TestUninstallFromFreshRemovesStatusline(t *testing.T) {
 	r := newRig(t)
-	r.run(Options{})
+	r.run(Options{Statusline: "replace"})
 	r.run(Options{Uninstall: true})
 
 	if len(r.read()) != 0 {
@@ -248,7 +248,7 @@ func TestUninstallFromFreshRemovesStatusline(t *testing.T) {
 func TestUninstallWithoutRecordStillUnwraps(t *testing.T) {
 	r := newRig(t)
 	r.write(`{"statusLine": {"type": "command", "command": "node ~/sl.js --x 'y z'"}}`)
-	r.run(Options{})
+	r.run(Options{Statusline: "wrap"})
 	os.Remove(filepath.Join(r.petHome, "install.json"))
 	r.run(Options{Uninstall: true})
 
@@ -266,7 +266,7 @@ func TestHandIntegratedStatuslineLeftAlone(t *testing.T) {
 	cmd := "bash " + filepath.ToSlash(script)
 	r.write(`{"statusLine": {"type": "command", "command": ` + string(mustMarshal(cmd)) + `}}`)
 
-	out, _ := r.run(Options{})
+	out, _ := r.run(Options{Statusline: "wrap"})
 	if statuslineCmd(r.read()) != cmd || !strings.Contains(out, "already shows the pet") {
 		t.Fatal(out)
 	}
@@ -360,7 +360,7 @@ func TestUpgradeFromPythonInstall(t *testing.T) {
 	  "statusline_after": {"type": "command"}}`
 	_ = os.WriteFile(filepath.Join(r.petHome, "install.json"), []byte(pyRecord), 0o600)
 
-	out, err := r.run(Options{})
+	out, err := r.run(Options{Statusline: "wrap"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -475,7 +475,7 @@ const modLine = "claude plugin install claudepet --marketplace DanielAckroyd/cla
 func TestModTakesPetOutAndUninstallRestores(t *testing.T) {
 	r := newRig(t)
 	r.write(existing)
-	r.run(Options{})
+	r.run(Options{Statusline: "wrap"})
 
 	out, err := r.run(Options{Statusline: "mod"})
 	if err != nil {
@@ -483,11 +483,11 @@ func TestModTakesPetOutAndUninstallRestores(t *testing.T) {
 	}
 
 	m := r.read()
-	if statuslineCmd(m) != "bash ~/my status.sh" || ourHooks(m, "SessionEnd") != 0 || ourHooks(m, "PreCompact") != 0 {
+	if statuslineCmd(m) != "bash ~/my status.sh" || ourHooks(m, "SessionEnd") != 0 || ourHooks(m, "PreCompact") != 1 {
 		t.Fatalf("%s\n%v", out, m)
 	}
 
-	if !strings.Contains(out, "hooks: removed PreCompact, SessionEnd, the mod scores") {
+	if !strings.Contains(out, "hooks: removed SessionEnd (the mod scores clean wraps)") {
 		t.Fatal(out)
 	}
 
@@ -524,8 +524,8 @@ func TestModInstallsOnYes(t *testing.T) {
 		t.Fatalf("%v\n%s", ran, out)
 	}
 
-	if _, err := os.Stat(r.settings); err == nil {
-		t.Fatal("mod mode on a fresh machine has nothing to write to settings.json")
+	if m := r.read(); statuslineCmd(m) != "" || ourHooks(m, "PreCompact") != 1 || ourHooks(m, "SessionEnd") != 0 {
+		t.Fatalf("%v", m)
 	}
 }
 
@@ -572,5 +572,36 @@ func TestModDryRun(t *testing.T) {
 
 	if _, err := os.Stat(r.settings); err == nil {
 		t.Fatal("dry run wrote settings")
+	}
+}
+
+func TestExpressInstallsTheMod(t *testing.T) {
+	r := newRig(t)
+
+	out, err := r.run(Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m := r.read()
+	if statuslineCmd(m) != "" || ourHooks(m, "PreCompact") != 1 ||
+		!strings.Contains(out, "mod: install it with: "+modLine) {
+		t.Fatalf("%s\n%v", out, m)
+	}
+}
+
+func TestModNoHooksDropsThemAll(t *testing.T) {
+	r := newRig(t)
+	r.run(Options{Statusline: "wrap"})
+
+	no := false
+	if _, err := r.run(Options{Statusline: "mod", Hooks: &no}); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, ev := range hookEvents() {
+		if ourHooks(r.read(), ev) != 0 {
+			t.Fatal(ev)
+		}
 	}
 }

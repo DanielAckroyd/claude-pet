@@ -265,7 +265,7 @@ func parseSetupFlags(args []string) (setup.Options, bool) {
 		fail("--statusline is wrap, replace, skip or mod")
 	}
 
-	// --mod alone is express with the mod; add --custom for the questions too.
+	// --mod predates the mod being the default; it still means express with the mod.
 	if *mod {
 		*sl = "mod"
 		*express = *express || !*custom
@@ -298,7 +298,7 @@ func chooseMode(o *setup.Options) {
 		o.Custom = true
 	case o.Interactive:
 		fmt.Printf("\033[1mclaude-pet %s\033[0m\n\n", Version())
-		fmt.Println("  \033[1mexpress\033[0m  defaults for everything, takes a second")
+		fmt.Println("  \033[1mexpress\033[0m  the Claude Code mod with defaults, takes a second")
 		fmt.Printf("  \033[1mcustom\033[0m   a few questions and a quick guide\n\n")
 		fmt.Print("Express or custom? \033[2m[express]\033[0m ")
 
@@ -318,12 +318,12 @@ func chooseMode(o *setup.Options) {
 const setupUsage = `claude-pet setup: wire the pet into Claude Code
 
   claude-pet setup              ask: express or custom
-  claude-pet setup --express    sensible defaults, no questions
+  claude-pet setup --express    sensible defaults, no questions: installs the Claude Code mod
   claude-pet setup --custom     a few questions and a quick guide
-  claude-pet setup --mod        use the Claude Code mod instead of the statusline
   claude-pet setup --uninstall  put your settings back the way they were
 
 Custom options can also be passed as flags (handy when Claude runs it for you):
-  --hours 9-17   --statusline wrap|replace|skip|mod   --no-hooks   --name NAME
+  --hours 9-17   --no-hooks   --name NAME
+  --statusline wrap|replace|skip   the statusline instead, for a Claude Code without mods
 Add --dry-run to see what would change without writing anything.
 `

@@ -1135,3 +1135,90 @@ func TestHookHandling(t *testing.T) {
 		t.Fatalf("%+v", s.Days["2026-09-28"])
 	}
 }
+
+// --- statusline and mod sharing a session ----------------------------------
+
+// fromMod is a payload as the mod sends it.
+func fromMod(p pl) map[string]any {
+	d := p.m()
+	d["source"] = "mod"
+
+	return d
+}
+
+func TestOneWriterPerSession(t *testing.T) {
+	env(t)
+
+	now := monAt(10, 0)
+	s, ev := fresh(now), []Event{}
+	tick(s, now, &ev, pl{sid: "A", lines: f(100)}.m())
+	tick(s, now+5, &ev, fromMod(pl{sid: "A", lines: f(400)}))
+	tick(s, now+10, &ev, pl{sid: "A", lines: f(120)}.m())
+	near(t, s.Days["2026-09-28"].Lines, 20, 0, "mod ignored while the statusline feeds")
+
+	if s.Owner("A", now+10) != "statusline" {
+		t.Fatal(s.Owner("A", now+10))
+	}
+
+	tick(s, now+60, &ev, fromMod(pl{sid: "A", lines: f(400)}))
+	near(t, s.Days["2026-09-28"].Lines, 20, 0, "takeover's first total is a baseline")
+	tick(s, now+65, &ev, fromMod(pl{sid: "A", lines: f(430)}))
+	near(t, s.Days["2026-09-28"].Lines, 50, 0, "mod gains count once it owns the session")
+	tick(s, now+70, &ev, pl{sid: "A", lines: f(999)}.m())
+	near(t, s.Days["2026-09-28"].Lines, 50, 0, "statusline now waits its turn")
+
+	if s.Owner("A", now+70) != "mod" || s.Owner("A", now+200) != "" || s.Owner("nope", now) != "" {
+		t.Fatal("owner")
+	}
+}
+
+func TestRepeatHookIgnored(t *testing.T) {
+	env(t)
+
+	now := monAt(10, 0)
+	s, ev := fresh(now), []Event{}
+	auto := map[string]any{"session_id": "A", "trigger": "auto"}
+	hookTick(s, now, &ev, "PreCompact", auto)
+	hookTick(s, now+2, &ev, "PreCompact", auto)
+	near(t, s.Stats.Fit, 50, 0, "settings hook and mod deliver the same compact")
+	hookTick(s, now+2, &ev, "PreCompact", map[string]any{"session_id": "B", "trigger": "auto"})
+	near(t, s.Stats.Fit, 30, 0, "another session's compact still counts")
+	hookTick(s, now+61, &ev, "PreCompact", auto)
+	near(t, s.Stats.Fit, 10, 0, "a later compact counts")
+}
+
+func TestMilestonesSince(t *testing.T) {
+	env(t)
+
+	AppendEvents([]Event{
+		{TS: 100, Kind: "level", Msg: "reached level 4"},
+		{TS: 200, Kind: "commit", Msg: "1 commit"},
+		{TS: 300, Kind: "evolve", Msg: "grew into a owl (steady)"},
+	})
+
+	got := MilestonesSince(150)
+	if len(got) != 1 || got[0].Msg != "grew into a owl" || got[0].Trait != "steady" || got[0].Kind != "evolve" {
+		t.Fatalf("%+v", got)
+	}
+
+	if len(MilestonesSince(50)) != 2 || len(MilestonesSince(300)) != 0 {
+		t.Fatal("since filter")
+	}
+}
+
+func TestPartsMatchRender(t *testing.T) {
+	env(t)
+
+	now := monAt(10, 0)
+	s := fresh(now)
+	s.Look.Shiny = true
+
+	p := s.Parts(now, "")
+	if p.Tone != "shiny" || p.Mood != "content" || s.Render(now, nil, "") != p.Text() {
+		t.Fatalf("%+v %q", p, s.Render(now, nil, ""))
+	}
+
+	if got := s.Render(now, ANSI(), ""); !strings.HasPrefix(got, Shiny) {
+		t.Fatalf("%q", got)
+	}
+}

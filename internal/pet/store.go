@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"time"
 )
 
@@ -207,34 +208,115 @@ func Segment(data map[string]any, colors Colors, now float64) (out string) {
 		}
 	}()
 
-	if os.Getenv("PET_DISABLE") == "1" {
-		return ""
-	}
-
-	LoadConfig()
-
-	release, err := Lock(time.Duration(T.LockWait * float64(time.Second)))
-
-	var s *State
-
-	if err == nil && release != nil {
-		var events []Event
-
-		s = LoadOrHatch(now, &events)
-		s.Tick(now, &events, data, "", nil, true)
-		_ = SaveState(s) // a failed save only loses this tick; still render what we have
-
-		AppendEvents(events)
-		release()
-	} else {
-		s = ReadState()
-	}
-
+	s := tickOrRead(data, now)
 	if s == nil {
 		return ""
 	}
 
 	return s.Render(now, colors, Warning(data, now))
+}
+
+// SegmentOut is the --json statusline output, for the mod to draw with its own colours.
+type SegmentOut struct {
+	Text       string      `json:"text"`
+	Body       string      `json:"body"`
+	Word       string      `json:"word"`
+	Mood       string      `json:"mood"`
+	Tone       string      `json:"tone"`
+	Name       string      `json:"name"`
+	Owner      string      `json:"owner"`
+	Milestones []Milestone `json:"milestones"`
+}
+
+// Milestone is an evolve, level or devolve event, with the trait split off the message.
+type Milestone struct {
+	TS    float64 `json:"ts"`
+	Kind  string  `json:"kind"`
+	Msg   string  `json:"msg"`
+	Trait string  `json:"trait,omitempty"`
+}
+
+// SegmentJSON is Segment as JSON, plus milestones after since (none when since is 0).
+// It never panics; any failure yields "{}".
+func SegmentJSON(data map[string]any, now, since float64) (out []byte) {
+	defer func() {
+		if recover() != nil {
+			out = []byte("{}")
+		}
+	}()
+
+	s := tickOrRead(data, now)
+	if s == nil {
+		return []byte("{}")
+	}
+
+	p := s.Parts(now, Warning(data, now))
+	res := SegmentOut{
+		Text: p.Text(), Body: p.Body, Word: p.Word, Mood: p.Mood, Tone: p.Tone, Name: s.Name,
+		Owner: s.Owner(str(data["session_id"]), now), Milestones: []Milestone{},
+	}
+
+	if since > 0 {
+		res.Milestones = MilestonesSince(since)
+	}
+
+	b, err := json.Marshal(res)
+	if err != nil {
+		return []byte("{}")
+	}
+
+	return b
+}
+
+// milestoneScan bounds how far back MilestonesSince looks; milestones are days apart, ticks seconds.
+const milestoneScan = 50
+
+var traitSuffix = regexp.MustCompile(`^(.*) \(([^)]+)\)$`)
+
+// MilestonesSince returns evolve/level/devolve events newer than since, oldest first.
+func MilestonesSince(since float64) []Milestone {
+	out := []Milestone{}
+
+	for _, e := range ReadEvents(milestoneScan) {
+		if e.TS <= since || (e.Kind != "evolve" && e.Kind != "level" && e.Kind != "devolve") {
+			continue
+		}
+
+		m := Milestone{TS: e.TS, Kind: e.Kind, Msg: e.Msg}
+		if sub := traitSuffix.FindStringSubmatch(e.Msg); sub != nil {
+			m.Msg, m.Trait = sub[1], sub[2]
+		}
+
+		out = append(out, m)
+	}
+
+	return out
+}
+
+// tickOrRead ticks the pet if the lock is free, else reads it; nil when disabled or unreadable.
+func tickOrRead(data map[string]any, now float64) *State {
+	if os.Getenv("PET_DISABLE") == "1" {
+		return nil
+	}
+
+	LoadConfig()
+
+	release, err := Lock(time.Duration(T.LockWait * float64(time.Second)))
+	if err != nil || release == nil {
+		return ReadState()
+	}
+
+	defer release()
+
+	var events []Event
+
+	s := LoadOrHatch(now, &events)
+	s.Tick(now, &events, data, "", nil, true)
+	_ = SaveState(s) // a failed save only loses this tick; still render what we have
+
+	AppendEvents(events)
+
+	return s
 }
 
 // HandleHook applies a PreCompact/SessionEnd payload. Async hook, so it can wait out a tick.

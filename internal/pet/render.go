@@ -215,9 +215,20 @@ func Cameo(now float64) string {
 	return ""
 }
 
-// Render is the statusline segment: face, charm, crown, cameo, and the mood word (or a reaction).
-// warn is this pane's session warning; it only beats the shared mood when that isn't serious.
-func (s *State) Render(now float64, colors Colors, warn string) string {
+// Parts is one render: the face with its extras, the word beside it, and the colour key they share.
+type Parts struct {
+	Body string // face, charm, crown and cameo
+	Word string
+	Mood string
+	Tone string // "good", "meh", "bad", or "shiny" for a happy shiny pet
+}
+
+// Text is the segment as plain text.
+func (p Parts) Text() string { return p.Body + " " + p.Word }
+
+// Parts picks what a render shows. warn is this pane's session warning; it only beats the shared mood
+// when that isn't serious.
+func (s *State) Parts(now float64, warn string) Parts {
 	s.Ensure()
 
 	mk, word := s.MoodOf(now), ""
@@ -236,8 +247,6 @@ func (s *State) Render(now float64, colors Colors, warn string) string {
 		word = m.Word
 	}
 
-	f := Face(s.Form, mk, Frame(now)%4 == 3, s.Look.Eyes)
-
 	crown := ""
 	if s.CurrentStreak(now) >= int(T.CrownStreak) {
 		crown = Crown
@@ -248,9 +257,26 @@ func (s *State) Render(now float64, colors Colors, warn string) string {
 		cam = " " + cam
 	}
 
-	col := colors[m.Color]
-	if colors != nil && m.Color == "good" && s.Look.Shiny {
-		col = Shiny
+	tone := m.Color
+	if tone == "good" && s.Look.Shiny {
+		tone = "shiny"
+	}
+
+	body := Face(s.Form, mk, Frame(now)%4 == 3, s.Look.Eyes) + s.Look.Charm + crown + cam
+
+	return Parts{Body: body, Word: word, Mood: mk, Tone: tone}
+}
+
+// Render is the statusline segment: face, charm, crown, cameo, and the mood word (or a reaction).
+func (s *State) Render(now float64, colors Colors, warn string) string {
+	p := s.Parts(now, warn)
+
+	col := colors[p.Tone]
+	if p.Tone == "shiny" {
+		col = colors["good"]
+		if colors != nil {
+			col = Shiny
+		}
 	}
 
 	reset := ""
@@ -258,7 +284,7 @@ func (s *State) Render(now float64, colors Colors, warn string) string {
 		reset = colors["reset"]
 	}
 
-	return col + f + s.Look.Charm + crown + cam + " " + word + reset
+	return col + p.Text() + reset
 }
 
 // Width is the terminal column width of text (East Asian wide/fullwidth = 2, combining = 0).

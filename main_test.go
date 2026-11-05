@@ -1,12 +1,15 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/DanielAckroyd/claude-pet/internal/pet"
 )
 
 // binPath is the binary TestMain built, passed through the environment rather than a global.
@@ -69,11 +72,29 @@ func TestStatuslineModes(t *testing.T) {
 func TestStatuslineNeverFails(t *testing.T) {
 	for _, in := range []string{"", "junk", "[]", `{"session_id":3,"cost":"x"}`} {
 		for _, args := range [][]string{{"statusline"}, {"statusline", "--segment"}, {"statusline", "--wrap"},
-			{"statusline", "--wrap", "exit 3"}} {
+			{"statusline", "--wrap", "exit 3"}, {"statusline", "--json"}, {"statusline", "--json", "--since", "x"}} {
 			if _, code := run(t, in, args...); code != 0 {
 				t.Fatalf("%q %v exited %d", in, args, code)
 			}
 		}
+	}
+}
+
+func TestStatuslineJSON(t *testing.T) {
+	out, code := run(t, `{"session_id":"s","source":"mod"}`, "statusline", "--json", "--since", "1")
+
+	var got pet.SegmentOut
+	if code != 0 || json.Unmarshal([]byte(out), &got) != nil {
+		t.Fatalf("%d %q", code, out)
+	}
+
+	if got.Body == "" || got.Name == "" || got.Owner != "mod" || got.Text != got.Body+" "+got.Word ||
+		len(got.Milestones) != 0 || strings.Contains(out, "\033") {
+		t.Fatalf("%+v", got)
+	}
+
+	if junk, _ := run(t, "junk", "statusline", "--json"); !json.Valid([]byte(junk)) {
+		t.Fatalf("%q", junk)
 	}
 }
 

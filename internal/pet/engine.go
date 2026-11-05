@@ -43,6 +43,7 @@ type Tuning struct {
 	WiltMinutes, DevolveLevels                  float64 // active minutes wilting before devolving; levels lost
 	ReactSecs, ShinyOdds                        float64
 	KeepSessionDays, KeepCommitDays, KeepDays   float64
+	WriterHoldSecs, HookDedupeSecs              float64 // statusline and mod both feed a session: one writer at a time
 }
 
 // XPMult maps "ctx below" → multiplier for commit XP.
@@ -63,6 +64,7 @@ func DefaultTuning() Tuning {
 		SpeciesLevel: 5, FinalLevel: 15, TraitTauHours: 4, ShipPerHour: 0.5, TidyPerHour: 0.25,
 		FoxMin: 0.5, FoxSpread: 0.25, WiltBelow: 30, WiltRecover: 40, WiltMinutes: 90, DevolveLevels: 2,
 		ReactSecs: 30, ShinyOdds: 20, KeepSessionDays: 7, KeepCommitDays: 14, KeepDays: 90,
+		WriterHoldSecs: 30, HookDedupeSecs: 60,
 	}
 }
 
@@ -92,6 +94,7 @@ func (t *Tuning) fields() map[string]*float64 {
 		"wilt_minutes": &t.WiltMinutes, "devolve_levels": &t.DevolveLevels, "react_secs": &t.ReactSecs,
 		"shiny_odds": &t.ShinyOdds, "keep_session_days": &t.KeepSessionDays,
 		"keep_commit_days": &t.KeepCommitDays, "keep_days": &t.KeepDays,
+		"writer_hold_secs": &t.WriterHoldSecs, "hook_dedupe_secs": &t.HookDedupeSecs,
 	}
 }
 
@@ -148,6 +151,8 @@ type Session struct {
 	ActiveAt float64  `json:"active_at,omitempty"`
 	Cold     *float64 `json:"cold,omitempty"`    // Claude Code's TTL-expiry miss count, as last seen
 	Recache  *float64 `json:"recache,omitempty"` // Claude Code's miss re-cache tokens, as last seen
+	FedBy    string   `json:"fed_by,omitempty"`  // "statusline" or "mod": whichever owns this session's totals
+	FedAt    float64  `json:"fed_at,omitempty"`
 }
 
 // Repo throttles commit polling for one repository.
@@ -210,6 +215,7 @@ type State struct {
 	Wilt         float64             `json:"wilt"`
 	Devolved     float64             `json:"devolved"`
 	ActiveAt     float64             `json:"active_at"`
+	HookSeen     map[string]float64  `json:"hook_seen,omitempty"`
 }
 
 // Event is one line of the history log.
@@ -795,7 +801,18 @@ func (s *State) observe(data map[string]any, now float64, events *[]Event, poll 
 		return
 	}
 
+	src := sourceOf(data)
+	if s.heldByOther(p.sid, src, now) {
+		return
+	}
+
+	// A takeover's totals aren't comparable with the old owner's, so its first sighting is a baseline.
+	if prev := s.Sessions[p.sid]; prev != nil && prev.FedBy != "" && prev.FedBy != src {
+		prev.Lines, prev.Cold, prev.Recache = nil, nil, nil
+	}
+
 	sess := s.trackSession(p, now, events)
+	sess.FedBy, sess.FedAt = src, now
 	s.accrueTemper(p.five, now)
 
 	if poll && p.cwd != "" {
@@ -808,6 +825,33 @@ func (s *State) observe(data map[string]any, now float64, events *[]Event, poll 
 			s.pollRepo(sess, now, events)
 		}
 	}
+}
+
+// sourceOf names who sent a payload; the statusline predates the field, so its absence means statusline.
+func sourceOf(data map[string]any) string {
+	if str(data["source"]) == "mod" {
+		return "mod"
+	}
+
+	return "statusline"
+}
+
+// heldByOther is whether another source fed this session recently. Their cumulative totals differ, so
+// letting both feed would flip the baselines and count the same lines and cache misses twice.
+func (s *State) heldByOther(sid, src string, now float64) bool {
+	sess := s.Sessions[sid]
+
+	return sess != nil && sess.FedBy != "" && sess.FedBy != src && now-sess.FedAt < T.WriterHoldSecs
+}
+
+// Owner is the source feeding a session ("statusline", "mod"), or "" if none has recently.
+func (s *State) Owner(sid string, now float64) string {
+	sess := s.Sessions[sid]
+	if sess == nil || now-sess.FedAt >= T.WriterHoldSecs {
+		return ""
+	}
+
+	return sess.FedBy
 }
 
 // trackSession updates one session's baseline, gains and activity from a payload.
@@ -1048,6 +1092,29 @@ func (s *State) onSessionEnd(data map[string]any, now float64, events *[]Event) 
 	delete(s.Sessions, sid)
 }
 
+// repeatHook is whether this hook already fired for the session lately: during a move from settings
+// hooks to the mod both can deliver the same PreCompact, and an auto-compact must only cost fit once.
+func (s *State) repeatHook(hook string, data map[string]any, now float64) bool {
+	if s.HookSeen == nil {
+		s.HookSeen = map[string]float64{}
+	}
+
+	for k, at := range s.HookSeen {
+		if now-at >= T.HookDedupeSecs {
+			delete(s.HookSeen, k)
+		}
+	}
+
+	key := strings.Join([]string{hook, str(data["session_id"]), str(data["trigger"]), str(data["reason"])}, "|")
+	if _, seen := s.HookSeen[key]; seen {
+		return true
+	}
+
+	s.HookSeen[key] = now
+
+	return false
+}
+
 // Tick is one locked update. data is a statusline payload; hook is the hook event name + payload.
 func (s *State) Tick(
 	now float64, events *[]Event, data map[string]any, hook string, hookData map[string]any, poll bool,
@@ -1058,6 +1125,10 @@ func (s *State) Tick(
 	wm := s.advance(now)
 	if data != nil {
 		s.observe(data, now, events, poll)
+	}
+
+	if hook != "" && s.repeatHook(hook, hookData, now) {
+		hook = ""
 	}
 
 	switch hook {

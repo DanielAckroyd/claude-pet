@@ -46,7 +46,7 @@ const usage = `claude-pet: a little pet in your Claude Code statusline
   claude-pet version
 
 Used by Claude Code (set up for you by 'claude-pet setup'):
-  claude-pet statusline [--segment | --wrap 'CMD']
+  claude-pet statusline [--segment | --wrap 'CMD' | --json [--since TS]]
   claude-pet hook
 
 No reset command: delete ~/.claude/pet/state.json if you really mean it.
@@ -122,21 +122,34 @@ func statusline(args []string) {
 		data = map[string]any{}
 	}
 
-	seg := pet.Segment(data, pet.ANSI(), pet.Now())
-	mode, wrapped := "", ""
+	mode, wrapped, since := "", "", 0.0
 
 	for i, a := range args {
 		switch a {
 		case "--segment":
 			mode = "segment"
+		case "--json":
+			mode = "json"
 		case "--wrap":
 			mode = "wrap"
 
 			if i+1 < len(args) {
 				wrapped = args[i+1]
 			}
+		case "--since":
+			if i+1 < len(args) {
+				since, _ = strconv.ParseFloat(args[i+1], 64)
+			}
 		}
 	}
+
+	if mode == "json" {
+		_, _ = os.Stdout.Write(pet.SegmentJSON(data, pet.Now(), since))
+
+		return
+	}
+
+	seg := pet.Segment(data, pet.ANSI(), pet.Now())
 
 	switch mode {
 	case "segment":

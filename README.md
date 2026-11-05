@@ -36,9 +36,25 @@ It backs up `~/.claude/settings.json` before touching it, keeps everything else 
 
 > Install claude-pet by running `curl -fsSL https://raw.githubusercontent.com/DanielAckroyd/claude-pet/main/install.sh | sh` (on Windows, the install.ps1 line from https://github.com/DanielAckroyd/claude-pet), then run `claude-pet setup --express` and show me the output.
 
-For a custom setup through Claude, ask it to pass the options as flags: `--hours 8-16`, `--statusline wrap|replace|skip`, `--no-hooks`, `--name NAME`. Add `--dry-run` to preview first.
+For a custom setup through Claude, ask it to pass the options as flags: `--hours 8-16`, `--statusline wrap|replace|skip|mod`, `--no-hooks`, `--name NAME`. Add `--dry-run` to preview first.
 
-**Uninstall:** `claude-pet setup --uninstall` puts your statusline and hooks back the way they were. Then delete the `claude-pet` binary (the install script puts it in `~/.local/bin`, or `%LOCALAPPDATA%\Programs\claude-pet` on Windows). Your pet stays in `~/.claude/pet` until you delete the folder.
+### As a Claude Code mod
+
+On a Claude Code build with mods (tested on 2.1.318), the pet can live in the prompt footer instead of the statusline. It also reacts in the spinner while Claude works, flashes milestones next to the face, and `/pet` opens the stat sheet in a pane. Nothing pops up or interrupts. Install the binary as above, then:
+
+```sh
+claude-pet setup --mod
+```
+
+That takes the pet out of your statusline if setup put it there, keeps the scoring hooks, and offers to install the mod pointed at your binary. To install the mod yourself, type this at a Claude Code prompt:
+
+```
+/plugin install claudepet --marketplace DanielAckroyd/claude-pet
+```
+
+It finds `claude-pet` on your PATH; setup stores the full path instead, which also works when Claude Code is started from an app. If your own statusline script still draws the pet, the footer stays empty for that session so you don't see two.
+
+**Uninstall:** `claude-pet setup --uninstall` puts your statusline and hooks back the way they were. Then delete the `claude-pet` binary (the install script puts it in `~/.local/bin`, or `%LOCALAPPDATA%\Programs\claude-pet` on Windows). If you used the mod, also run `claude plugin uninstall claudepet`. Your pet stays in `~/.claude/pet` until you delete the folder.
 
 <details>
 <summary>Adding the pet inside your own statusline script</summary>

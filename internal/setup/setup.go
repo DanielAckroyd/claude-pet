@@ -18,7 +18,12 @@ import (
 	"github.com/DanielAckroyd/claude-pet/internal/pet"
 )
 
-const refreshMs = 5000
+const (
+	refreshMs = 5000
+	// The mod's plugin name and the marketplace it installs from (this repo).
+	modName        = "claudepet"
+	modMarketplace = "DanielAckroyd/claude-pet"
+)
 
 // hookEvents() are the Claude Code hooks the pet listens to.
 func hookEvents() []string { return []string{"PreCompact", "SessionEnd"} }
@@ -27,7 +32,7 @@ func hookEvents() []string { return []string{"PreCompact", "SessionEnd"} }
 type Options struct {
 	Custom, Uninstall, DryRun bool
 	Hours                     *[2]float64
-	Statusline                string // wrap | replace | skip
+	Statusline                string // wrap | replace | skip | mod
 	Hooks                     *bool
 	Name                      string
 	Interactive               bool
@@ -35,6 +40,7 @@ type Options struct {
 	Out                       io.Writer
 	Bin                       string // command that runs this binary; resolved if empty
 	Version                   string
+	Exec                      func(argv []string) error // runs the mod install; os/exec if nil
 }
 
 func settingsPath() string {
@@ -352,6 +358,7 @@ type record struct {
 	StatuslineBefore json.RawMessage `json:"statusline_before,omitempty"`
 	HadStatusline    bool            `json:"had_statusline"`
 	StatuslineAfter  string          `json:"statusline_after,omitempty"`
+	Mod              bool            `json:"mod,omitempty"`
 	Version          string          `json:"version"`
 	InstalledAt      string          `json:"installed_at"`
 }
@@ -382,6 +389,7 @@ func loadRecord() (*record, bool) {
 		return rec, false
 	}
 
+	_ = json.Unmarshal(m["mod"], &rec.Mod) // absent before the mod existed → false
 	rec.StatuslineBefore = m["statusline_before"]
 	if json.Unmarshal(m["had_statusline"], &rec.HadStatusline) != nil {
 		rec.HadStatusline = len(rec.StatuslineBefore) > 0 && string(rec.StatuslineBefore) != "null"
@@ -456,6 +464,79 @@ func planStatusline(s *Object, mode, bin string, rec *record) (string, bool) {
 	rec.StatuslineAfter = cur.String("command")
 
 	return msg, true
+}
+
+// planMod takes the pet out of the statusline, since the mod draws it in the prompt footer instead.
+func planMod(s *Object, rec *record) (string, bool) {
+	rec.Mod = true
+	cmd := s.Child("statusLine").String("command")
+
+	switch {
+	case isOurStatusline(cmd):
+		msg, changed := restoreStatusline(s)
+		rec.StatuslineBefore, rec.HadStatusline, rec.StatuslineAfter = nil, false, ""
+
+		return msg + ", the mod draws the pet in the prompt footer now", changed
+	case statuslineHasPet(cmd):
+		return "statusline: your script still calls claude-pet. Remove that call, " +
+			"or the mod keeps the footer empty while your statusline draws the pet", false
+	default:
+		return "statusline: left alone, the mod draws the pet in the prompt footer", false
+	}
+}
+
+// modInstall is the one command that adds this repo's marketplace, installs the mod and points it at us.
+func modInstall(bin string) []string {
+	return []string{"claude", "plugin", "install", modName, "--marketplace", modMarketplace, "--config", "bin=" + bin}
+}
+
+func shellLine(argv []string) string {
+	q := make([]string, len(argv))
+	for i, a := range argv {
+		q[i] = ShellQuote(a)
+	}
+
+	return strings.Join(q, " ")
+}
+
+// installMod runs the mod install on a yes at a prompt; otherwise it hands back the command to run.
+func installMod(o Options) string {
+	argv := modInstall(o.Bin)
+	line := shellLine(argv)
+
+	switch {
+	case o.DryRun:
+		return "mod: would install with: " + line
+	case !o.Interactive:
+		return "mod: install it with: " + line
+	}
+
+	if o.Exec == nil {
+		if _, err := exec.LookPath("claude"); err != nil {
+			return "mod: Claude Code CLI not found on PATH. Install it with: " + line
+		}
+	}
+
+	p := prompter{bufio.NewReader(o.In), o.Out}
+	if p.ask("Install the claudepet mod now?", "y", "y", "n") != "y" {
+		return "mod: not installed. Install it with: " + line
+	}
+
+	run := o.Exec
+	if run == nil {
+		run = func(argv []string) error {
+			c := exec.Command(argv[0], argv[1:]...) //nolint:gosec // fixed argv: the claude CLI and our own binary path
+			c.Stdin, c.Stdout, c.Stderr = o.In, o.Out, o.Out
+
+			return c.Run()
+		}
+	}
+
+	if err := run(argv); err != nil {
+		return fmt.Sprintf("mod: install failed (%v). Run it yourself: %s", err, line)
+	}
+
+	return "mod: installed " + modName + ". Start a new Claude Code session to see it"
 }
 
 // --- prompts -----------------------------------------------------------------
@@ -534,7 +615,19 @@ func Run(o Options) error {
 	}
 
 	rec, _ := loadRecord()
-	msg, slChanged := planStatusline(s, statuslineMode(o, curCmd), o.Bin, rec)
+	mode := statuslineMode(o, curCmd)
+
+	var (
+		msg       string
+		slChanged bool
+	)
+
+	if mode == "mod" {
+		msg, slChanged = planMod(s, rec)
+	} else {
+		msg, slChanged = planStatusline(s, mode, o.Bin, rec)
+	}
+
 	hookMsg, hooksChanged := applyHooks(s, o)
 
 	backup := ""
@@ -549,8 +642,13 @@ func Run(o Options) error {
 		return err
 	}
 
-	lines := make([]string, 0, 2+len(extra))
+	lines := make([]string, 0, 3+len(extra))
 	lines = append(lines, msg, hookMsg)
+
+	if mode == "mod" {
+		lines = append(lines, installMod(o))
+	}
+
 	lines = append(lines, extra...)
 
 	if !o.DryRun {
@@ -578,6 +676,11 @@ func withDefaults(o Options) Options {
 
 	if o.In == nil {
 		o.In = os.Stdin
+	}
+
+	// One shared buffer, so a prompt never swallows input meant for the next one.
+	if _, ok := o.In.(*bufio.Reader); !ok {
+		o.In = bufio.NewReader(o.In)
 	}
 
 	return o
@@ -637,10 +740,11 @@ func askStatusline(p prompter, curCmd string) string {
 	case curCmd != "":
 		_, _ = fmt.Fprintf(p.out, "  Your statusline: \033[2m%s\033[0m\n", curCmd)
 
-		return p.ask("Add the pet to it (wrap), replace it with the bundled one, or skip?",
-			"wrap", "wrap", "replace", "skip")
+		return p.ask("Add the pet to it (wrap), replace it with the bundled one, use the Claude Code mod, or skip?",
+			"wrap", "wrap", "replace", "mod", "skip")
 	default:
-		return p.ask("No statusline yet. Use the bundled one, or skip?", "replace", "replace", "skip")
+		return p.ask("No statusline yet. Use the bundled one, the Claude Code mod, or skip?",
+			"replace", "replace", "mod", "skip")
 	}
 }
 
@@ -765,6 +869,7 @@ func uninstall(o Options) error {
 		return fmt.Errorf("couldn't read %s (%w). Nothing was changed", tilde(settingsPath()), err)
 	}
 
+	rec, _ := loadRecord()
 	slMsg, changed := restoreStatusline(s)
 	lines := []string{slMsg}
 
@@ -798,6 +903,11 @@ func uninstall(o Options) error {
 
 	if backup != "" {
 		_, _ = fmt.Fprintf(o.Out, "  settings backup: %s\n", tilde(backup))
+	}
+
+	if rec.Mod {
+		_, _ = fmt.Fprintf(o.Out, "\nRemove the mod too: %s\n",
+			shellLine([]string{"claude", "plugin", "uninstall", modName}))
 	}
 
 	_, _ = fmt.Fprintf(o.Out, "\nYour pet and its history are still in %s. Delete that folder to say goodbye "+

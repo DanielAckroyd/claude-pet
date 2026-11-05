@@ -628,7 +628,16 @@ func Run(o Options) error {
 		msg, slChanged = planStatusline(s, mode, o.Bin, rec)
 	}
 
-	hookMsg, hooksChanged := applyHooks(s, o)
+	var (
+		hookMsg      string
+		hooksChanged bool
+	)
+
+	if mode == "mod" {
+		hookMsg, hooksChanged = dropHooks(s)
+	} else {
+		hookMsg, hooksChanged = applyHooks(s, o)
+	}
 
 	backup := ""
 	if slChanged || hooksChanged {
@@ -719,7 +728,7 @@ func askCustom(o *Options, curCmd string) {
 		o.Statusline = askStatusline(p, curCmd)
 	}
 
-	if o.Hooks == nil {
+	if o.Hooks == nil && o.Statusline != "mod" {
 		y := p.ask("Add hooks for auto-compact and clean-wrap scoring?", "y", "y", "n") == "y"
 		o.Hooks = &y
 	}
@@ -763,6 +772,16 @@ func applyHooks(s *Object, o Options) (string, bool) {
 	default:
 		return "hooks: already there", false
 	}
+}
+
+// dropHooks takes out setup's settings hooks: the mod scores compacts and session ends from its own events.
+func dropHooks(s *Object) (string, bool) {
+	removed := removeHooks(s)
+	if len(removed) == 0 {
+		return "hooks: none to remove, the mod scores compacts and clean wraps itself", false
+	}
+
+	return "hooks: removed " + strings.Join(removed, ", ") + ", the mod scores compacts and clean wraps itself", true
 }
 
 // applyPetOptions writes the work hours and name, which live with the pet, not in settings.json.

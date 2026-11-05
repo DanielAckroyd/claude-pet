@@ -483,8 +483,12 @@ func TestModTakesPetOutAndUninstallRestores(t *testing.T) {
 	}
 
 	m := r.read()
-	if statuslineCmd(m) != "bash ~/my status.sh" || ourHooks(m, "SessionEnd") != 1 || ourHooks(m, "PreCompact") != 1 {
+	if statuslineCmd(m) != "bash ~/my status.sh" || ourHooks(m, "SessionEnd") != 0 || ourHooks(m, "PreCompact") != 0 {
 		t.Fatalf("%s\n%v", out, m)
+	}
+
+	if !strings.Contains(out, "hooks: removed PreCompact, SessionEnd, the mod scores") {
+		t.Fatal(out)
 	}
 
 	restored := "restored to what you had before, the mod draws the pet"
@@ -520,8 +524,8 @@ func TestModInstallsOnYes(t *testing.T) {
 		t.Fatalf("%v\n%s", ran, out)
 	}
 
-	if _, has := r.read()["statusLine"]; has {
-		t.Fatal("mod mode added a statusline")
+	if _, err := os.Stat(r.settings); err == nil {
+		t.Fatal("mod mode on a fresh machine has nothing to write to settings.json")
 	}
 }
 

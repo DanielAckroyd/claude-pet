@@ -46,7 +46,7 @@ On a Claude Code build with mods (tested on 2.1.318), the pet can live in the pr
 claude-pet setup --mod
 ```
 
-That takes the pet out of your statusline if setup put it there, keeps the scoring hooks, and offers to install the mod pointed at your binary. To install the mod yourself, type this at a Claude Code prompt:
+That takes the pet out of your statusline if setup put it there, removes setup's scoring hooks (the mod does that scoring itself), and offers to install the mod pointed at your binary. To install the mod yourself, type this at a Claude Code prompt:
 
 ```
 /plugin install claudepet --marketplace DanielAckroyd/claude-pet

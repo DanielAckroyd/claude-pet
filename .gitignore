@@ -10,3 +10,6 @@ install.json
 dist/
 /claude-pet
 /claude-pet.exe
+
+# written by Claude Code when it loads the mod
+mod/.claude-plugin/types/

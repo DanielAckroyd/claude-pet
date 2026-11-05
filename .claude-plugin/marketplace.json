@@ -1,0 +1,14 @@
+{
+  "name": "claude-pet",
+  "owner": {
+    "name": "Daniel Ackroyd"
+  },
+  "description": "claudepet, a Claude Code mod for the claude-pet companion",
+  "plugins": [
+    {
+      "name": "claudepet",
+      "source": "./mod",
+      "description": "A pet in your Claude Code footer that does well when you use Claude well"
+    }
+  ]
+}

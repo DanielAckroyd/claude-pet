@@ -1,0 +1,17 @@
+{
+  "name": "claudepet",
+  "version": "0.4.0",
+  "description": "A pet in your Claude Code footer that does well when you use Claude well: shipping commits, keeping context lean, wrapping sessions cleanly",
+  "author": { "name": "Daniel Ackroyd" },
+  "license": "MIT",
+  "homepage": "https://github.com/DanielAckroyd/claude-pet",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "bin": {
+      "type": "string",
+      "title": "claude-pet binary",
+      "description": "Path to the claude-pet binary. claude-pet setup fills this in.",
+      "default": "claude-pet"
+    }
+  }
+}

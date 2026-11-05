@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -300,11 +301,11 @@ func editMatcher(mr json.RawMessage, ev string, fn hookFn) (out json.RawMessage,
 	}
 }
 
-// addHooks adds our hook to each event, or updates an older one in place. Returns what changed.
-func addHooks(s *Object, bin string) (added, updated []string) {
+// addHooks adds our hook to each of events, or updates an older one in place. Returns what changed.
+func addHooks(s *Object, bin string, events ...string) (added, updated []string) {
 	want := ShellQuote(bin) + " hook"
-	touched, found := editHooks(s, func(_ string, h *Object) (bool, *Object) {
-		if h.String("command") == want {
+	touched, found := editHooks(s, func(ev string, h *Object) (bool, *Object) {
+		if !slices.Contains(events, ev) || h.String("command") == want {
 			return true, nil
 		}
 
@@ -315,7 +316,7 @@ func addHooks(s *Object, bin string) (added, updated []string) {
 
 	var missing []string
 
-	for _, ev := range hookEvents() {
+	for _, ev := range events {
 		if touched[ev] {
 			updated = append(updated, ev)
 		}
@@ -338,12 +339,12 @@ func addHooks(s *Object, bin string) (added, updated []string) {
 	return added, updated
 }
 
-func removeHooks(s *Object) []string {
-	touched, _ := editHooks(s, func(string, *Object) (bool, *Object) { return false, nil })
+func removeHooks(s *Object, events ...string) []string {
+	touched, _ := editHooks(s, func(ev string, _ *Object) (bool, *Object) { return !slices.Contains(events, ev), nil })
 
 	var removed []string
 
-	for _, ev := range hookEvents() {
+	for _, ev := range events {
 		if touched[ev] {
 			removed = append(removed, ev)
 		}
@@ -480,6 +481,8 @@ func planMod(s *Object, rec *record) (string, bool) {
 	case statuslineHasPet(cmd):
 		return "statusline: your script still calls claude-pet. Remove that call, " +
 			"or the mod keeps the footer empty while your statusline draws the pet", false
+	case cmd == "":
+		return "pet: the mod draws it in the prompt footer", false
 	default:
 		return "statusline: left alone, the mod draws the pet in the prompt footer", false
 	}
@@ -533,7 +536,8 @@ func installMod(o Options) string {
 	}
 
 	if err := run(argv); err != nil {
-		return fmt.Sprintf("mod: install failed (%v). Run it yourself: %s", err, line)
+		return fmt.Sprintf("mod: install failed (%v). Run it yourself: %s\n    %s", err, line,
+			"On a Claude Code without mods, use the statusline instead: claude-pet setup --statusline wrap")
 	}
 
 	return "mod: installed " + modName + ". Start a new Claude Code session to see it"
@@ -615,7 +619,7 @@ func Run(o Options) error {
 	}
 
 	rec, _ := loadRecord()
-	mode := statuslineMode(o, curCmd)
+	mode := statuslineMode(o)
 
 	var (
 		msg       string
@@ -634,7 +638,7 @@ func Run(o Options) error {
 	)
 
 	if mode == "mod" {
-		hookMsg, hooksChanged = dropHooks(s)
+		hookMsg, hooksChanged = modHooks(s, o)
 	} else {
 		hookMsg, hooksChanged = applyHooks(s, o)
 	}
@@ -695,15 +699,12 @@ func withDefaults(o Options) Options {
 	return o
 }
 
-func statuslineMode(o Options, curCmd string) string {
-	switch {
-	case o.Statusline != "":
+func statuslineMode(o Options) string {
+	if o.Statusline != "" {
 		return o.Statusline
-	case curCmd != "":
-		return "wrap"
-	default:
-		return "replace"
 	}
+
+	return "mod"
 }
 
 // askCustom fills in whatever the flags didn't, with a quick guide first.
@@ -749,11 +750,11 @@ func askStatusline(p prompter, curCmd string) string {
 	case curCmd != "":
 		_, _ = fmt.Fprintf(p.out, "  Your statusline: \033[2m%s\033[0m\n", curCmd)
 
-		return p.ask("Add the pet to it (wrap), replace it with the bundled one, use the Claude Code mod, or skip?",
-			"wrap", "wrap", "replace", "mod", "skip")
+		return p.ask("Use the Claude Code mod, or on a Claude Code without mods add the pet to this (wrap), "+
+			"replace it with the bundled one, or skip?", "mod", "mod", "wrap", "replace", "skip")
 	default:
-		return p.ask("No statusline yet. Use the bundled one, the Claude Code mod, or skip?",
-			"replace", "replace", "mod", "skip")
+		return p.ask("Use the Claude Code mod, or on a Claude Code without mods the bundled statusline, or skip?",
+			"mod", "mod", "replace", "skip")
 	}
 }
 
@@ -762,7 +763,7 @@ func applyHooks(s *Object, o Options) (string, bool) {
 		return "hooks: skipped (no auto-compact or clean-wrap scoring)", false
 	}
 
-	added, updated := addHooks(s, o.Bin)
+	added, updated := addHooks(s, o.Bin, hookEvents()...)
 
 	switch {
 	case len(added) > 0:
@@ -774,14 +775,36 @@ func applyHooks(s *Object, o Options) (string, bool) {
 	}
 }
 
-// dropHooks takes out setup's settings hooks: the mod scores compacts and session ends from its own events.
-func dropHooks(s *Object) (string, bool) {
-	removed := removeHooks(s)
-	if len(removed) == 0 {
-		return "hooks: none to remove, the mod scores compacts and clean wraps itself", false
+// modHooks keeps setup's PreCompact hook beside the mod, which scores clean wraps itself.
+// Claude Code's built-in security plugin can run first and skip the mod's compact hook; the engine drops the repeat.
+func modHooks(s *Object, o Options) (string, bool) {
+	if o.Hooks != nil && !*o.Hooks {
+		removed := removeHooks(s, hookEvents()...)
+
+		return "hooks: skipped (auto-compacts scored only where the mod's hook runs)", len(removed) > 0
 	}
 
-	return "hooks: removed " + strings.Join(removed, ", ") + ", the mod scores compacts and clean wraps itself", true
+	added, updated := addHooks(s, o.Bin, "PreCompact")
+	removed := removeHooks(s, "SessionEnd")
+
+	var did []string
+	if len(added) > 0 {
+		did = append(did, "added PreCompact")
+	}
+
+	if len(updated) > 0 {
+		did = append(did, "upgraded PreCompact")
+	}
+
+	if len(removed) > 0 {
+		did = append(did, "removed SessionEnd (the mod scores clean wraps)")
+	}
+
+	if len(did) == 0 {
+		return "hooks: PreCompact already there", false
+	}
+
+	return "hooks: " + strings.Join(did, ", "), true
 }
 
 // applyPetOptions writes the work hours and name, which live with the pet, not in settings.json.
@@ -892,7 +915,7 @@ func uninstall(o Options) error {
 	slMsg, changed := restoreStatusline(s)
 	lines := []string{slMsg}
 
-	removed := removeHooks(s)
+	removed := removeHooks(s, hookEvents()...)
 	if len(removed) > 0 {
 		lines = append(lines, "hooks: removed "+strings.Join(removed, ", "))
 	} else {

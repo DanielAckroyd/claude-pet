@@ -1222,3 +1222,22 @@ func TestPartsMatchRender(t *testing.T) {
 		t.Fatalf("%q", got)
 	}
 }
+
+func TestSettingsCompactScoresInAModSession(t *testing.T) {
+	env(t)
+
+	now := monAt(10, 0)
+	s, ev := fresh(now), []Event{}
+	tick(s, now, &ev, fromMod(pl{sid: "A", lines: f(100)}))
+	hookTick(s, now+1, &ev, "PreCompact", map[string]any{"session_id": "A", "trigger": "auto"})
+	near(t, s.Stats.Fit, 50, 0, "the settings hook scores a compact while the mod owns the session")
+
+	found := false
+	for _, e := range ev {
+		found = found || e.Kind == "auto_compact"
+	}
+
+	if !found {
+		t.Fatalf("no auto_compact event: %+v", ev)
+	}
+}

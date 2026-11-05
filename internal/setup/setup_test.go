@@ -458,3 +458,119 @@ func TestResolveBinIsTheRunningBinary(t *testing.T) {
 		t.Fatalf("got %s, want the stable path %s", got, link)
 	}
 }
+
+// --- the Claude Code mod -----------------------------------------------------
+
+func (r *rig) runWith(o Options, in string) (string, error) {
+	var out bytes.Buffer
+
+	o.Out, o.Bin, o.Version, o.In = &out, bin, "test", strings.NewReader(in)
+	err := Run(o)
+
+	return out.String(), err
+}
+
+const modLine = "claude plugin install claudepet --marketplace DanielAckroyd/claude-pet --config bin=" + bin
+
+func TestModTakesPetOutAndUninstallRestores(t *testing.T) {
+	r := newRig(t)
+	r.write(existing)
+	r.run(Options{})
+
+	out, err := r.run(Options{Statusline: "mod"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m := r.read()
+	if statuslineCmd(m) != "bash ~/my status.sh" || ourHooks(m, "SessionEnd") != 0 || ourHooks(m, "PreCompact") != 0 {
+		t.Fatalf("%s\n%v", out, m)
+	}
+
+	if !strings.Contains(out, "hooks: removed PreCompact, SessionEnd, the mod scores") {
+		t.Fatal(out)
+	}
+
+	restored := "restored to what you had before, the mod draws the pet"
+	if !strings.Contains(out, restored) || !strings.Contains(out, "mod: install it with: "+modLine) {
+		t.Fatal(out)
+	}
+
+	out, _ = r.run(Options{Uninstall: true})
+	if !strings.Contains(out, "claude plugin uninstall claudepet") {
+		t.Fatal(out)
+	}
+
+	if !reflect.DeepEqual(r.read(), mustJSON(t, existing)) {
+		t.Fatalf("%v", r.read())
+	}
+}
+
+func TestModInstallsOnYes(t *testing.T) {
+	r := newRig(t)
+
+	var ran []string
+
+	out, err := r.runWith(Options{Statusline: "mod", Interactive: true, Exec: func(argv []string) error {
+		ran = argv
+
+		return nil
+	}}, "y\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !reflect.DeepEqual(ran, modInstall(bin)) || !strings.Contains(out, "mod: installed claudepet") {
+		t.Fatalf("%v\n%s", ran, out)
+	}
+
+	if _, err := os.Stat(r.settings); err == nil {
+		t.Fatal("mod mode on a fresh machine has nothing to write to settings.json")
+	}
+}
+
+func TestModDeclinedRunsNothing(t *testing.T) {
+	r := newRig(t)
+	called := false
+
+	out, _ := r.runWith(Options{Statusline: "mod", Interactive: true, Exec: func([]string) error {
+		called = true
+
+		return nil
+	}}, "n\n")
+	if called || !strings.Contains(out, "mod: not installed. Install it with: "+modLine) {
+		t.Fatal(out)
+	}
+}
+
+func TestModFlagsHandIntegratedScript(t *testing.T) {
+	r := newRig(t)
+	script := filepath.Join(r.home, "sl.sh")
+	_ = os.WriteFile(script, []byte("pet=$(claude-pet statusline --segment)\n"), 0o600)
+
+	cmd := "bash " + filepath.ToSlash(script)
+	r.write(`{"statusLine": {"type": "command", "command": ` + string(mustMarshal(cmd)) + `}}`)
+
+	out, _ := r.run(Options{Statusline: "mod"})
+	if statuslineCmd(r.read()) != cmd || !strings.Contains(out, "still calls claude-pet") {
+		t.Fatal(out)
+	}
+}
+
+func TestModDryRun(t *testing.T) {
+	r := newRig(t)
+	called := false
+
+	out, _ := r.runWith(Options{Statusline: "mod", DryRun: true, Interactive: true, Exec: func([]string) error {
+		called = true
+
+		return nil
+	}}, "y\n")
+	if called || !strings.Contains(out, "mod: would install with: "+modLine) {
+		t.Fatal(out)
+	}
+
+	if _, err := os.Stat(r.settings); err == nil {
+		t.Fatal("dry run wrote settings")
+	}
+}

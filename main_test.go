@@ -98,6 +98,17 @@ func TestStatuslineJSON(t *testing.T) {
 	}
 }
 
+func TestSetupModFlag(t *testing.T) {
+	o, express := parseSetupFlags([]string{"--mod"})
+	if o.Statusline != "mod" || !express {
+		t.Fatalf("%+v %v", o, express)
+	}
+
+	if o, express := parseSetupFlags([]string{"--mod", "--custom"}); o.Statusline != "mod" || express || !o.Custom {
+		t.Fatalf("%+v %v", o, express)
+	}
+}
+
 func TestWrapPrefixesAndPassesStdin(t *testing.T) {
 	out, _ := run(t, payload, "statusline", "--wrap", "cat") // cat echoes the same stdin back
 	if !strings.HasSuffix(out, " "+payload) || !strings.HasPrefix(out, "\033[") {

@@ -254,14 +254,21 @@ func parseSetupFlags(args []string) (setup.Options, bool) {
 	sl := fs.String("statusline", "", "")
 	noHooks := fs.Bool("no-hooks", false, "")
 	name := fs.String("name", "", "")
+	mod := fs.Bool("mod", false, "")
 
 	if err := fs.Parse(args); err != nil {
 		fmt.Print(setupUsage)
 		os.Exit(2)
 	}
 
-	if *sl != "" && *sl != "wrap" && *sl != "replace" && *sl != "skip" {
-		fail("--statusline is wrap, replace or skip")
+	if *sl != "" && *sl != "wrap" && *sl != "replace" && *sl != "skip" && *sl != "mod" {
+		fail("--statusline is wrap, replace, skip or mod")
+	}
+
+	// --mod alone is express with the mod; add --custom for the questions too.
+	if *mod {
+		*sl = "mod"
+		*express = *express || !*custom
 	}
 
 	o := setup.Options{Custom: *custom, Uninstall: *uninstall, DryRun: *dry, Statusline: *sl, Name: *name,
@@ -313,9 +320,10 @@ const setupUsage = `claude-pet setup: wire the pet into Claude Code
   claude-pet setup              ask: express or custom
   claude-pet setup --express    sensible defaults, no questions
   claude-pet setup --custom     a few questions and a quick guide
+  claude-pet setup --mod        use the Claude Code mod instead of the statusline
   claude-pet setup --uninstall  put your settings back the way they were
 
 Custom options can also be passed as flags (handy when Claude runs it for you):
-  --hours 9-17   --statusline wrap|replace|skip   --no-hooks   --name NAME
+  --hours 9-17   --statusline wrap|replace|skip|mod   --no-hooks   --name NAME
 Add --dry-run to see what would change without writing anything.
 `

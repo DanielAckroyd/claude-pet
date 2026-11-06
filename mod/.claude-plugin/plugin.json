@@ -1,6 +1,6 @@
 {
   "name": "claudepet",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "A pet in your Claude Code footer that does well when you use Claude well: shipping commits, keeping context lean, wrapping sessions cleanly",
   "author": { "name": "Daniel Ackroyd" },
   "license": "MIT",

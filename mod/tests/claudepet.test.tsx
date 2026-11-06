@@ -13,6 +13,7 @@ import {
   reaction,
   stageFor,
   toneColor,
+  updateHint,
 } from '../hooks/logic'
 import type { Face } from '../types'
 
@@ -24,6 +25,16 @@ const step = (over: Partial<Parameters<typeof observeStep>[1]> = {}) => ({
   cacheRead: 0,
   cacheWrite: 0,
   ...over,
+})
+
+test('the update hint shows only when two releases differ, or the binary predates versions', async () => {
+  expect(updateHint('0.6.0', '0.6.0')).toBe('')
+  expect(updateHint('0.6.0', '0.5.0')).toBe('run claude-pet update')
+  expect(updateHint('0.5.0', '0.6.0')).toBe('run claude-pet update')
+  expect(updateHint('0.6.0', undefined)).toBe('run claude-pet update')
+  expect(updateHint('0.6.0', '0.3.1-0.20261105061244-285445c0f0df+dirty')).toBe('')
+  expect(updateHint('0.6.0', 'dev')).toBe('')
+  expect(updateHint('', '0.5.0')).toBe('')
 })
 
 test('patch lines count + and - across hunks', async () => {
@@ -138,6 +149,16 @@ for (const surface of ['terminal', 'desktop'] as const) {
 
     const ui = await $.ui.mount({ ...FOOTER, surface })
     expect((await ui.find({ type: 'Text', text: /engine/ }))?.text).toBe('engine')
+    await ui.unmount()
+  })
+
+  test(`the footer shows the update hint without a face on ${surface}`, async ($, on) => {
+    on('state.get', (_, e) => ({
+      value: { value: e.key === 'hint' ? 'run claude-pet update' : undefined, version: 1 },
+    }))
+
+    const ui = await $.ui.mount({ ...FOOTER, surface })
+    expect((await ui.find({ type: 'Text', text: /claude-pet update/ }))?.text).toBe(' run claude-pet update')
     await ui.unmount()
   })
 

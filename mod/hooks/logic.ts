@@ -123,6 +123,14 @@ export function chillText(l: Ledger, now: number): string {
   return left > 0 && left < l.ttlMs * CHILLY_FRAC ? `❄ ${Math.ceil(left / 60_000)}m` : ''
 }
 
+// Mod and binary ship from the same release; a dev build on either side can't be compared, so it gets no hint.
+export function updateHint(modVersion: string, binVersion: unknown): string {
+  const release = /^\d+\.\d+\.\d+$/
+  if (!release.test(modVersion)) return ''
+  if (typeof binVersion === 'string' && (binVersion === modVersion || !release.test(binVersion))) return ''
+  return 'run claude-pet update'
+}
+
 // The statusline payload shape the binary already scores, with the mod's own totals.
 export function buildPayload(
   sessionId: string,

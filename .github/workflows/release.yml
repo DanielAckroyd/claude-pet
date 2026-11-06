@@ -15,6 +15,11 @@ jobs:
         with:
           go-version-file: go.mod
       - run: go test ./...
+      # The mod hints at an update whenever its version differs from the binary's, so a tag must match plugin.json.
+      - name: plugin.json version matches the tag
+        run: |
+          mod=$(jq -r .version mod/.claude-plugin/plugin.json)
+          [ "$mod" = "${GITHUB_REF_NAME#v}" ] || { echo "::error::mod/.claude-plugin/plugin.json is $mod, tag is $GITHUB_REF_NAME"; exit 1; }
       - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
           version: v2.18.2

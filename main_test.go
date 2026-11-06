@@ -88,7 +88,7 @@ func TestStatuslineJSON(t *testing.T) {
 		t.Fatalf("%d %q", code, out)
 	}
 
-	if got.Body == "" || got.Name == "" || got.Owner != "mod" || got.Text != got.Body+" "+got.Word ||
+	if got.Body == "" || got.Name == "" || got.Owner != "mod" || got.Version == "" || got.Text != got.Body+" "+got.Word ||
 		len(got.Milestones) != 0 || strings.Contains(out, "\033") {
 		t.Fatalf("%+v", got)
 	}

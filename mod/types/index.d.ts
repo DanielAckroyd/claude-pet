@@ -29,6 +29,7 @@ declare module 'claude-code' {
       ledger: Shaped<Ledger>
       chill: string
       flash: Shaped<Line>
+      hint: string
     }
   }
 }

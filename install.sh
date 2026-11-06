@@ -1,12 +1,22 @@
 #!/bin/sh
 # claude-pet installer for macOS and Linux (Windows: install.ps1).
 #   curl -fsSL https://raw.githubusercontent.com/DanielAckroyd/claude-pet/main/install.sh | sh
-# Downloads the latest release binary, checks its checksum, puts it in ~/.local/bin
-# (override with CLAUDE_PET_BIN=/some/dir), then runs `claude-pet setup`.
+# Downloads the latest release binary, checks its checksum, puts it in ~/.local/bin (or over an
+# existing claude-pet on PATH; override with CLAUDE_PET_BIN=/some/dir), then runs `claude-pet setup`.
 set -eu
 
 repo=DanielAckroyd/claude-pet
 dir=${CLAUDE_PET_BIN:-$HOME/.local/bin}
+
+# A second copy elsewhere on PATH could shadow the new one, so replace an existing install where it is.
+if [ -z "${CLAUDE_PET_BIN:-}" ] && existing=$(command -v claude-pet 2>/dev/null) && ! [ "$existing" -ef "$dir/claude-pet" ]; then
+  if [ -f "$existing" ] && [ ! -L "$existing" ] && [ -w "$(dirname "$existing")" ]; then
+    dir=$(dirname "$existing")
+    echo "Updating the claude-pet already in $dir"
+  else
+    echo "Note: there's another claude-pet at $existing. Whichever comes first on your PATH is the one that runs."
+  fi
+fi
 
 os=$(uname -s | tr '[:upper:]' '[:lower:]')
 case $os in

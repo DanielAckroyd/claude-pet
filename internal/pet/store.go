@@ -225,6 +225,7 @@ type SegmentOut struct {
 	Tone       string      `json:"tone"`
 	Name       string      `json:"name"`
 	Owner      string      `json:"owner"`
+	Version    string      `json:"version"`
 	Milestones []Milestone `json:"milestones"`
 }
 
@@ -237,8 +238,8 @@ type Milestone struct {
 }
 
 // SegmentJSON is Segment as JSON, plus milestones after since (none when since is 0).
-// It never panics; any failure yields "{}".
-func SegmentJSON(data map[string]any, now, since float64) (out []byte) {
+// version lets the mod spot a binary from a different release. It never panics; any failure yields "{}".
+func SegmentJSON(data map[string]any, now, since float64, version string) (out []byte) {
 	defer func() {
 		if recover() != nil {
 			out = []byte("{}")
@@ -253,7 +254,7 @@ func SegmentJSON(data map[string]any, now, since float64) (out []byte) {
 	p := s.Parts(now, Warning(data, now))
 	res := SegmentOut{
 		Text: p.Text(), Body: p.Body, Word: p.Word, Mood: p.Mood, Tone: p.Tone, Name: s.Name,
-		Owner: s.Owner(str(data["session_id"]), now), Milestones: []Milestone{},
+		Owner: s.Owner(str(data["session_id"]), now), Version: version, Milestones: []Milestone{},
 	}
 
 	if since > 0 {

@@ -16,6 +16,7 @@ import {
   reaction,
   stageFor,
   toneColor,
+  updateHint,
 } from './logic'
 import type { Step } from './logic'
 
@@ -32,12 +33,14 @@ const stage = atom({ plugin: 'claudepet', key: 'stage' } as const, 0)
 const ledger = atom({ plugin: 'claudepet', key: 'ledger' } as const, EMPTY_LEDGER, { shape: 'ledger-1' })
 const chill = atom({ plugin: 'claudepet', key: 'chill' } as const, '')
 const flash = atom({ plugin: 'claudepet', key: 'flash' } as const, [], { shape: 'flash-1' })
+const hint = atom({ plugin: 'claudepet', key: 'hint' } as const, '')
 
 type Usage = { percent?: number; window?: number; five?: number }
 type Milestone = { ts: number; kind: string; msg: string; trait?: string }
-type JsonOut = Face & { text: string; mood: string; milestones: Milestone[] }
+type JsonOut = Face & { text: string; mood: string; version: string; milestones: Milestone[] }
 
 let bin = 'claude-pet'
+let modVersion = ''
 let cwd = ''
 let usage: Usage = {}
 let isTicking = false
@@ -45,6 +48,20 @@ let hasLoggedFailure = false
 let turnStartedAt: number | undefined
 // A flash clears itself only while it's still the one showing, so back-to-back milestones don't cut each other short.
 let flashSeq = 0
+
+// Best effort: without our own version there's just no update hint.
+async function readModVersion($: EngineInterface): Promise<string> {
+  try {
+    const manifest = JSON.parse(await $.fs.read(`${$.plugin.root}/.claude-plugin/plugin.json`)) as { version?: unknown }
+    return typeof manifest.version === 'string' ? manifest.version : ''
+  } catch {
+    return ''
+  }
+}
+
+async function setHint($: EngineInterface, text: string) {
+  if ((await read($, hint)) !== text) await update($, hint, () => text)
+}
 
 function logOnce($: EngineInterface, what: string, err: unknown) {
   if (hasLoggedFailure) return
@@ -74,9 +91,16 @@ async function tick($: EngineInterface) {
       timeoutMs: 2000,
     })
 
-    // A binary older than --json prints its plain segment instead, which fails here and hides the pet.
-    const out = JSON.parse(stdout) as Partial<JsonOut>
+    let out: Partial<JsonOut>
+    try {
+      out = JSON.parse(stdout) as Partial<JsonOut>
+    } catch (err) {
+      // A binary older than --json prints its plain segment instead: hide the pet, point at the update.
+      await setHint($, updateHint(modVersion, undefined))
+      throw err
+    }
     if (typeof out.body !== 'string') throw new Error('no --json output')
+    await setHint($, updateHint(modVersion, out.version))
 
     await update($, face, () => ({
       body: out.body ?? '',
@@ -141,6 +165,7 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
     cwd = e.cwd
+    modVersion = await readModVersion($)
     await $.command.register({ name: 'pet', description: "Open the pet's stat sheet in a pane" })
     void tick($)
     $.clock.every(TICK_MS, () => void tick($))
@@ -252,9 +277,10 @@ export const register: Register = (on, options) => {
     const f = await read($, face)
     const countdown = await read($, chill)
     const milestone = await read($, flash)
+    const updateText = await read($, hint)
     // Where the statusline already draws the pet, the footer would show a second one.
     const showFace = f !== null && f.owner !== 'statusline'
-    if (!showFace && countdown === '' && milestone.length === 0) return next(e)
+    if (!showFace && countdown === '' && milestone.length === 0 && updateText === '') return next(e)
 
     const { Box, Text } = $.ui.resolve(e)
     return (
@@ -266,6 +292,7 @@ export const register: Register = (on, options) => {
           </Text>
         ) : null}
         {countdown ? <Text color="#5fafff"> {countdown}</Text> : null}
+        {updateText ? <Text dimColor> {updateText}</Text> : null}
         {milestone.length > 0 ? <Text>  </Text> : null}
         {milestone.map(s => (
           <Text color={s.color} bold={s.bold}>

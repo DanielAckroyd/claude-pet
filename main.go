@@ -19,6 +19,7 @@ import (
 
 	"github.com/DanielAckroyd/claude-pet/internal/pet"
 	"github.com/DanielAckroyd/claude-pet/internal/setup"
+	"github.com/DanielAckroyd/claude-pet/internal/update"
 )
 
 // version is set by the release build; `go install` falls back to the module version.
@@ -43,6 +44,7 @@ const usage = `claude-pet: a little pet in your Claude Code statusline
   claude-pet tree            the evolution paths
   claude-pet devolve [-y]    drop back a tier on purpose (costs xp, re-rolls the next branch)
   claude-pet glyphs          every form × mood × frame, to check your terminal renders them evenly
+  claude-pet update          update the binary and the mod to the latest release (--force replaces a dev build)
   claude-pet version
 
 Used by Claude Code (set up for you by 'claude-pet setup'):
@@ -98,6 +100,8 @@ func main() {
 		devolve(len(args) > 0 && args[0] == "-y")
 	case "glyphs":
 		glyphs()
+	case "update":
+		runUpdate(args)
 	case "version", "--version", "-v":
 		fmt.Println("claude-pet", Version())
 	case "help", "-h", "--help":
@@ -226,6 +230,21 @@ func hook() {
 	var data map[string]any
 	if json.Unmarshal(raw, &data) == nil {
 		pet.HandleHook(data, pet.Now())
+	}
+}
+
+func runUpdate(args []string) {
+	fs := flag.NewFlagSet("update", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+
+	force := fs.Bool("force", false, "")
+
+	if err := fs.Parse(args); err != nil || fs.NArg() > 0 {
+		fail("claude-pet update [--force]")
+	}
+
+	if err := update.Run(update.Options{Force: *force, Version: Version(), Out: os.Stdout}); err != nil {
+		fail(err.Error())
 	}
 }
 

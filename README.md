@@ -12,7 +12,7 @@ It's a Claude Code mod. The pet sits in the prompt footer next to the mode, colo
 - **A ❄ countdown** before the session's prompt cache goes cold, so you know to send a message or wrap up.
 - **`/pet`** opens the stat sheet in a pane beside the chat.
 
-One pet is shared across every Claude session on the machine. Everything is local: state lives in a JSON file, the only external command is a local `git log`, and nothing touches the network.
+One pet is shared across every Claude session on the machine. Everything is local: state lives in a JSON file, the only external command is a local `git log`, and nothing touches the network except `claude-pet update` when you run it.
 
 ## Install
 
@@ -113,6 +113,7 @@ claude-pet tree         the evolution paths
 claude-pet devolve      drop back a tier on purpose (asks first; -y skips the prompt)
 claude-pet glyphs       every form × mood × frame, to check your terminal renders them evenly
 claude-pet setup        wire it into Claude Code (or --custom, --uninstall)
+claude-pet update       update the binary and the mod to the latest release (--force replaces a dev build)
 ```
 
 It's a long name to type, so `alias pet=claude-pet` is worth adding. There's no reset command. Delete `~/.claude/pet/state.json` if you really mean it.
@@ -129,7 +130,7 @@ Set `PET_DISABLE=1` to switch the pet off without uninstalling.
 
 ## Updating
 
-Re-run the install script (or `go install github.com/DanielAckroyd/claude-pet@latest`), then `claude plugin update claudepet`. Your pet lives in `~/.claude/pet`, separate from both, so it carries over.
+`claude-pet update` updates both the binary and the mod, then tells you to start a new Claude Code session. If that doesn't work, re-run the install script (or `go install github.com/DanielAckroyd/claude-pet@latest`), then `claude plugin update claudepet@claude-pet`. If the footer says `run claude-pet update`, the mod and the binary are from different releases. Your pet lives in `~/.claude/pet`, separate from both, so it carries over.
 
 ## Notes
 

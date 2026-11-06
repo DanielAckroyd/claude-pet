@@ -144,7 +144,7 @@ func statusline(args []string) {
 	}
 
 	if mode == "json" {
-		_, _ = os.Stdout.Write(pet.SegmentJSON(data, pet.Now(), since))
+		_, _ = os.Stdout.Write(pet.SegmentJSON(data, pet.Now(), since, Version()))
 
 		return
 	}

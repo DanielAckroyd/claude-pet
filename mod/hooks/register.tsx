@@ -161,6 +161,7 @@ async function openSheet($: EngineInterface) {
 
 export const register: Register = (on, options) => {
   bin = typeof options.bin === 'string' && options.bin !== '' ? options.bin : 'claude-pet'
+  const showInSpinner = options.spinner !== false
 
   on('session.start', async ($, e, next) => {
     const started = await next(e)
@@ -257,7 +258,7 @@ export const register: Register = (on, options) => {
 
   // Rewrites only the word, so the engine still draws elapsed time and tokens after it.
   on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
-    const f = await read($, face)
+    const f = showInSpinner ? await read($, face) : null
     if (f === null) return next(e)
     const word = `${f.body} ${reaction(f.name, e.props.mode, await read($, activity), await read($, stage), usage.percent)}`
     return next({ ...e, props: { ...e.props, word } })

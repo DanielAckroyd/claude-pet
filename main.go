@@ -272,6 +272,7 @@ func parseSetupFlags(args []string) (setup.Options, bool) {
 	hours := fs.String("hours", "", "")
 	sl := fs.String("statusline", "", "")
 	noHooks := fs.Bool("no-hooks", false, "")
+	noSpinner := fs.Bool("no-spinner", false, "")
 	name := fs.String("name", "", "")
 	mod := fs.Bool("mod", false, "")
 
@@ -298,6 +299,11 @@ func parseSetupFlags(args []string) (setup.Options, bool) {
 		o.Hooks = &f
 	}
 
+	if *noSpinner {
+		f := false
+		o.Spinner = &f
+	}
+
 	if *hours != "" {
 		h, err := setup.ParseHours(*hours)
 		if err != nil {
@@ -313,7 +319,7 @@ func parseSetupFlags(args []string) (setup.Options, bool) {
 // chooseMode settles express vs custom when neither flag was given.
 func chooseMode(o *setup.Options) {
 	switch {
-	case o.Hours != nil || o.Statusline != "" || o.Hooks != nil || o.Name != "":
+	case o.Hours != nil || o.Statusline != "" || o.Hooks != nil || o.Spinner != nil || o.Name != "":
 		o.Custom = true
 	case o.Interactive:
 		fmt.Printf("\033[1mclaude-pet %s\033[0m\n\n", Version())
@@ -343,6 +349,7 @@ const setupUsage = `claude-pet setup: wire the pet into Claude Code
 
 Custom options can also be passed as flags (handy when Claude runs it for you):
   --hours 9-17   --no-hooks   --name NAME
+  --no-spinner   keep the pet out of Claude's thinking line (mod only)
   --statusline wrap|replace|skip   the statusline instead, for a Claude Code without mods
 Add --dry-run to see what would change without writing anything.
 `

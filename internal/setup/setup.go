@@ -35,6 +35,7 @@ type Options struct {
 	Hours                     *[2]float64
 	Statusline                string // wrap | replace | skip | mod
 	Hooks                     *bool
+	Spinner                   *bool // the mod's pet in Claude's thinking line; nil keeps what the mod has
 	Name                      string
 	Interactive               bool
 	In                        io.Reader
@@ -489,8 +490,14 @@ func planMod(s *Object, rec *record) (string, bool) {
 }
 
 // modInstall is the one command that adds this repo's marketplace, installs the mod and points it at us.
-func modInstall(bin string) []string {
-	return []string{"claude", "plugin", "install", modName, "--marketplace", modMarketplace, "--config", "bin=" + bin}
+// On a mod that's already installed it still applies the config, so a re-run can flip the spinner.
+func modInstall(bin string, spinner *bool) []string {
+	argv := []string{"claude", "plugin", "install", modName, "--marketplace", modMarketplace, "--config", "bin=" + bin}
+	if spinner != nil {
+		argv = append(argv, "--config", "spinner="+strconv.FormatBool(*spinner))
+	}
+
+	return argv
 }
 
 func shellLine(argv []string) string {
@@ -504,7 +511,7 @@ func shellLine(argv []string) string {
 
 // installMod runs the mod install on a yes at a prompt; otherwise it hands back the command to run.
 func installMod(o Options) string {
-	argv := modInstall(o.Bin)
+	argv := modInstall(o.Bin, o.Spinner)
 	line := shellLine(argv)
 
 	switch {
@@ -732,6 +739,11 @@ func askCustom(o *Options, curCmd string) {
 	if o.Hooks == nil && o.Statusline != "mod" {
 		y := p.ask("Add hooks for auto-compact and clean-wrap scoring?", "y", "y", "n") == "y"
 		o.Hooks = &y
+	}
+
+	if o.Spinner == nil && o.Statusline == "mod" {
+		y := p.ask("Show the pet in Claude's thinking line while it works?", "y", "y", "n") == "y"
+		o.Spinner = &y
 	}
 
 	if o.Name == "" {

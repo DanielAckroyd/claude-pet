@@ -1,4 +1,5 @@
 import { expect, test } from 'claude-code/testing'
+import type { TestBody } from 'claude-code/testing'
 
 import {
   EMPTY_LEDGER,
@@ -179,3 +180,31 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await ui.unmount()
   })
 }
+
+const SPINNER = { plugin: 'claudepet', component: 'Spinner', surface: 'terminal' } as const
+const SPINNER_PROPS = { word: 'Sauteing', message: null, suffix: '…', mode: 'thinking' } as const
+
+// The engine's Spinner draws whatever word the chain hands it, so the test stands in for it.
+function spinnerWithFace(on: Parameters<TestBody>[1]) {
+  on('state.get', (_, e) => ({
+    value: { value: e.key === 'face' ? { shape: 'face-1', value: FACE } : undefined, version: 1 },
+  }))
+  on('ui.render', ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    return <Text>{(e.props as { word: string }).word}</Text>
+  })
+}
+
+test('the thinking line shows the pet by default', async ($, on) => {
+  spinnerWithFace(on)
+  const ui = await $.ui.mount({ ...SPINNER, props: SPINNER_PROPS })
+  expect((await ui.find({ type: 'Text', text: /Fizz/ }))?.text).toBe('(•ᴗ•)♣ Fizz is pondering')
+  await ui.unmount()
+})
+
+test('spinner off leaves the thinking line to the engine', { options: { spinner: false } }, async ($, on) => {
+  spinnerWithFace(on)
+  const ui = await $.ui.mount({ ...SPINNER, props: SPINNER_PROPS })
+  expect((await ui.find({ type: 'Text', text: /Sauteing|Fizz/ }))?.text).toBe('Sauteing')
+  await ui.unmount()
+})

@@ -7,7 +7,7 @@ A little pet that lives in Claude Code. It does well when you use Claude well: s
 It's a Claude Code mod. The pet sits in the prompt footer next to the mode, coloured by its mood, and reacts in the spinner while Claude works. It never pops up, asks for anything or slows a tool call down: you glance at it or you don't.
 
 - **The face** in the footer: green when it's happy, amber when it's meh, red when it's suffering, gold for a happy shiny.
-- **Spinner reactions** while Claude works: sniffing around on searches, smelling a commit, getting restless on a long turn, stuffed when context runs heavy.
+- **Spinner reactions** while Claude works: sniffing around on searches, smelling a commit, getting restless on a long turn, stuffed when context runs heavy. Rather keep Claude's own thinking words? Turn off the mod's `spinner` option in `/plugin`, or pick no in a custom setup.
 - **Milestones** flash next to the face for a few seconds: ✦ evolved, ▲ level up, ▽ devolved.
 - **A ❄ countdown** before the session's prompt cache goes cold, so you know to send a message or wrap up.
 - **`/pet`** opens the stat sheet in a pane beside the chat.
@@ -25,7 +25,7 @@ irm https://raw.githubusercontent.com/DanielAckroyd/claude-pet/main/install.ps1 
 
 That downloads the `claude-pet` binary, which keeps score, checks its checksum and runs setup. Pick **express** and say yes to installing the mod. Start a new Claude Code session and your pet hatches in the footer.
 
-Setup backs up `~/.claude/settings.json` before touching it, keeps everything else in there exactly as it was, and is safe to re-run. **Custom** asks a few questions first: work hours, mod or statusline, and a name.
+Setup backs up `~/.claude/settings.json` before touching it, keeps everything else in there exactly as it was, and is safe to re-run. **Custom** asks a few questions first: work hours, mod or statusline, whether the pet reacts in the spinner, and a name.
 
 With Go installed, `go install github.com/DanielAckroyd/claude-pet@latest` then `claude-pet setup` works too, or grab a binary from the [releases page](https://github.com/DanielAckroyd/claude-pet/releases). To install the mod on its own, type this at a Claude Code prompt:
 
@@ -39,7 +39,7 @@ It finds `claude-pet` on your PATH. Setup stores the full path instead, which al
 
 > Install claude-pet by running `curl -fsSL https://raw.githubusercontent.com/DanielAckroyd/claude-pet/main/install.sh | sh` (on Windows, the install.ps1 line from https://github.com/DanielAckroyd/claude-pet), then run `claude-pet setup --express`, run the mod install command it prints, and show me the output.
 
-For a custom setup through Claude, ask it to pass the options as flags: `--hours 8-16`, `--name NAME`, `--no-hooks`. Add `--dry-run` to preview first.
+For a custom setup through Claude, ask it to pass the options as flags: `--hours 8-16`, `--name NAME`, `--no-hooks`, `--no-spinner`. Add `--dry-run` to preview first.
 
 **Uninstall:** `claude plugin uninstall claudepet`, then `claude-pet setup --uninstall` to put your settings back the way they were. Delete the `claude-pet` binary (the install script puts it in `~/.local/bin`, or `%LOCALAPPDATA%\Programs\claude-pet` on Windows). Your pet stays in `~/.claude/pet` until you delete the folder.
 

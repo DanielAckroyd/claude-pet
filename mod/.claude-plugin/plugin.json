@@ -1,6 +1,6 @@
 {
   "name": "claudepet",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "A pet in your Claude Code footer that does well when you use Claude well: shipping commits, keeping context lean, wrapping sessions cleanly",
   "author": { "name": "Daniel Ackroyd" },
   "license": "MIT",
@@ -12,6 +12,12 @@
       "title": "claude-pet binary",
       "description": "Path to the claude-pet binary. claude-pet setup fills this in.",
       "default": "claude-pet"
+    },
+    "spinner": {
+      "type": "boolean",
+      "title": "Pet in the thinking line",
+      "description": "Show the pet and its reaction in place of Claude's thinking word while it works. Off leaves the thinking line alone; the footer face stays.",
+      "default": true
     }
   }
 }

@@ -520,7 +520,7 @@ func TestModInstallsOnYes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !reflect.DeepEqual(ran, modInstall(bin)) || !strings.Contains(out, "mod: installed claudepet") {
+	if !reflect.DeepEqual(ran, modInstall(bin, nil)) || !strings.Contains(out, "mod: installed claudepet") {
 		t.Fatalf("%v\n%s", ran, out)
 	}
 
@@ -603,5 +603,39 @@ func TestModNoHooksDropsThemAll(t *testing.T) {
 		if ourHooks(r.read(), ev) != 0 {
 			t.Fatal(ev)
 		}
+	}
+}
+
+func TestCustomModAsksAboutTheSpinner(t *testing.T) {
+	newRig(t)
+
+	var ran []string
+
+	var out bytes.Buffer
+
+	err := Run(Options{Custom: true, Interactive: true, In: strings.NewReader("9-17\nmod\nn\nPip\ny\n"),
+		Out: &out, Bin: bin, Version: "test", Exec: func(argv []string) error {
+			ran = argv
+
+			return nil
+		}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := strings.Join(ran, " ")
+	if !strings.Contains(out.String(), "thinking line") || !strings.HasSuffix(got, "--config spinner=false") {
+		t.Fatalf("%s\n%s", got, out.String())
+	}
+}
+
+func TestSpinnerOnlyPassedWhenChosen(t *testing.T) {
+	if strings.Contains(strings.Join(modInstall(bin, nil), " "), "spinner") {
+		t.Fatal("express should keep whatever the mod has")
+	}
+
+	on := true
+	if got := strings.Join(modInstall(bin, &on), " "); !strings.HasSuffix(got, "--config spinner=true") {
+		t.Fatal(got)
 	}
 }
